@@ -1,0 +1,28 @@
+{
+  "name": "auth-module",
+  "version": "1.0.0",
+  "description": "Re-usable Authentication module",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/venugopal8005/auth-module.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/venugopal8005/auth-module/issues"
+  },
+  "homepage": "https://github.com/venugopal8005/auth-module#readme",
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.1.2"
+  }
+}
