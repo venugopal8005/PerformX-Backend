@@ -5,6 +5,8 @@ import cors from "cors";
 import { initAuth } from "auth-module";
 import "dotenv/config";
 import taskRouter from "../src/routes/task.routes.js"
+import metaRouter from "./routes/meta.routes.js";
+import reportRouter from "./routes/reports.routes.js";
 
 const app = express();
 
@@ -18,7 +20,8 @@ app.use(
 app.use(express.json());
 app.use(cookieParser());
 app.use("/api/tasks", taskRouter);
-
+app.use("/api/meta", metaRouter);
+app.use("/api/reports", reportRouter);
 
 // db
 try {

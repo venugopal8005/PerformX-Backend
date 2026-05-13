@@ -7,6 +7,7 @@ import { cookieOptions } from "../config/cookieOptions.js";
 export const register = async (req, res) => {
   try {
     const { email, password, displayName } = req.body;
+    console.log(req.body);
 
     if (!email || !password || !displayName) {
       return res.status(400).json({ message: "All fields required" });
@@ -14,28 +15,32 @@ export const register = async (req, res) => {
 
     const existingUser = await User.findOne({ email });
     if (existingUser) {
+      console.log("user already exists");
       return res.status(409).json({ message: "User already exists" });
     }
 
     const user = await User.create({ email, password, displayName });
-
+    console.log("user created");
     const token = generateToken({
       id: user._id,
       name: user.displayName,
       email: user.email,
     });
+    console.log("token genrated");
 
     res.cookie("token", token, cookieOptions);
 
     res.status(201).json({ message: "User registered successfully" });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
+    console.log(err);
   }
 };
 
 // LOGIN
 export const login = async (req, res) => {
   try {
+    console.log(req.body);
     const { email, password } = req.body;
 
     if (!email || !password) {
