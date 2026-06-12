@@ -1,11 +1,19 @@
-import { MetaConnection } from "../models/meta/metaConnection.model.js";
+import { MetaConnection } from "../models/MetaConnection.js";
 
 export const getCampaigns = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const agencyId = req.user?.agencyId;
+    const clientId = req.query.client_id || req.query.clientId;
 
-    // 1. get connection
-    const connection = await MetaConnection.findOne({ user_id: userId });
+    if (!agencyId || !clientId) {
+      return res.status(400).send("agency and client context required");
+    }
+
+    const connection = await MetaConnection.findOne({
+      agency_id: agencyId,
+      client_id: clientId,
+      is_active: true,
+    }).select("+access_token");
 
     if (!connection) {
       return res.status(404).send("Meta not connected");
@@ -15,18 +23,13 @@ export const getCampaigns = async (req, res) => {
       return res.status(400).send("Ad account not selected");
     }
 
-    const { access_token, ad_account_id } = connection;
-
-    // 2. fetch campaigns
     const response = await fetch(
-      `https://graph.facebook.com/v19.0/${ad_account_id}/campaigns?fields=name,status,objective&access_token=${access_token}`
+      `https://graph.facebook.com/v19.0/${connection.ad_account_id}/campaigns?fields=name,status,objective&access_token=${connection.access_token}`
     );
-
     const data = await response.json();
 
-    res.json(data);
+    return res.json(data);
   } catch (err) {
-    console.error(err);
-    res.status(500).send("Failed to fetch campaigns");
+    return res.status(500).send("Failed to fetch campaigns");
   }
 };

@@ -1,0 +1,1209 @@
+{
+  "mock": true,
+  "scenarioKey": "goodSignal",
+  "reportId": "mock-goodSignal",
+  "reportName": "Good signal / opportunity",
+  "agencyId": "mock-agency",
+  "clientId": "mock-client",
+  "recipients": [],
+  "email": null,
+  "adAccountId": "act_9876543210",
+  "adAccountName": "Mock Meta Ad Account",
+  "narrative": {
+    "status": "ok",
+    "engineVersion": "1.0.0",
+    "analysisType": "daily_comparison",
+    "guidanceCoverage": {
+      "mode": "archetype_and_metric_specific_playbooks",
+      "supportedMetrics": [
+        "spend",
+        "impressions",
+        "reach",
+        "frequency",
+        "clicks",
+        "ctr",
+        "cpc",
+        "cpm",
+        "conversions",
+        "roas",
+        "cpa",
+        "conversionRate"
+      ]
+    },
+    "executiveSummary": "Healthy Scaling: performance improved versus 2026-06-10. Spend +15%, CTR +8.3%, CPC -7.3%. Continue scaling gradually while protecting CPA and CTR thresholds. Estimated impact: INR 1,756.",
+    "userInsight": {
+      "headline": "The campaign scaled well today.",
+      "plainSummary": "Compared with 2026-06-10, 2026-06-11 looks better. Spend increased while efficiency held or improved, indicating the campaign absorbed more budget without quality loss. Estimated positive impact is around INR 1,756.",
+      "decisionBrief": {
+        "decision": "protect_and_scale",
+        "label": "Protect the winning setup",
+        "decisionType": {
+          "id": "opportunity",
+          "label": "Opportunity",
+          "description": "Performance improved enough to protect or scale carefully."
+        },
+        "urgency": "opportunity",
+        "timeframe": "Next 48-72 hours",
+        "primaryAction": "Keep the current setup running and scale only in small controlled steps. Start with \"UGC Hook - Morning Routine\".",
+        "secondaryAction": "Use the previous CPA or CPC as your rollback line.",
+        "doNotDo": "Do not make major edits to the winning ad or audience today.",
+        "plainReason": "The campaign took more spend without showing a major quality loss.",
+        "expectedResult": "Conversions should keep rising while CPA stays near target.",
+        "ifNoImprovement": "If CPA rises, roll back to the last stable budget.",
+        "owner": "Media buyer or founder",
+        "impact": "INR 1,756 estimated gain",
+        "confidence": "High",
+        "mainMetric": {
+          "label": "Conversions",
+          "change": "+36.6%",
+          "plainChange": "increased by 36.6%"
+        },
+        "comparedWith": "2026-06-10",
+        "currentDate": "2026-06-11",
+        "actionChecklist": [
+          "Leave the winning ad and audience unchanged.",
+          "Increase budget only in small steps.",
+          "Roll back if CPA or CPC crosses the previous benchmark."
+        ]
+      },
+      "trust": {
+        "level": "high",
+        "score": 100,
+        "summary": "The recommendation is supported by enough delivery volume and usable metric data.",
+        "caveats": [],
+        "filteredSignals": [],
+        "baseline": {
+          "level": "strong",
+          "available": true,
+          "comparedDays": 5,
+          "requiredDays": 4,
+          "summary": "Compared against a 5-day baseline before 2026-06-11."
+        }
+      },
+      "trustGate": {
+        "level": "high",
+        "actionability": "opportunity",
+        "blocked": false,
+        "reasons": [],
+        "caveats": [],
+        "flags": {
+          "dataWindowMismatch": false,
+          "lowSpend": false,
+          "lowClicks": false,
+          "noConversions": false,
+          "noBaseline": false,
+          "noAdLevelData": false
+        },
+        "severityCap": null,
+        "decisionTypeOverride": null,
+        "primaryActionOverride": null
+      },
+      "decisionType": {
+        "id": "opportunity",
+        "label": "Opportunity",
+        "description": "Performance improved enough to protect or scale carefully."
+      },
+      "topContributor": {
+        "available": true,
+        "level": "ad",
+        "name": "UGC Hook - Morning Routine",
+        "contributionSummary": "This ad shows the weakest efficiency movement in the latest comparison.",
+        "recommendedAction": "Review this ad first and avoid increasing its budget today.",
+        "evidence": [
+          "This ad shows the weakest efficiency movement in the latest comparison."
+        ],
+        "metrics": {
+          "current": {
+            "spend": "INR 1,877",
+            "impressions": "58,560",
+            "clicks": "1,035",
+            "conversions": "34",
+            "ctr": "1.77%",
+            "cpc": "INR 1.81",
+            "cpa": "INR 55.2"
+          },
+          "previous": {
+            "spend": "INR 2,016",
+            "impressions": "62,400",
+            "clicks": "999",
+            "conversions": "31",
+            "ctr": "1.6%",
+            "cpc": "INR 2.02",
+            "cpa": "INR 65.03"
+          },
+          "deltas": {
+            "spend": "-6.9%",
+            "impressions": "-6.1%",
+            "clicks": "+3.6%",
+            "conversions": "+9.7%",
+            "ctr": "+10.6%",
+            "cpc": "-10.4%",
+            "cpa": "-15.1%"
+          }
+        }
+      },
+      "reportGoalAssessment": {
+        "available": true,
+        "objective": "purchases",
+        "primaryKpi": "CPA",
+        "targetSummary": "CPA target: below INR 70",
+        "assessment": "CPA is currently INR 49.29 (-15.8%)."
+      },
+      "whatHappened": [
+        "Conversions increased by 36.6%.",
+        "Spend increased by 15%."
+      ],
+      "simpleDiagnosis": {
+        "title": "Healthy Scaling",
+        "inPlainEnglish": "The campaign took more spend without showing a major quality loss. Conversions increased by 36.6%.",
+        "evidence": [
+          "Conversions increased by 36.6%.",
+          "Spend increased by 15%."
+        ]
+      },
+      "plainEnglishEvidence": [
+        {
+          "metric": "Conversions",
+          "change": "+36.6%",
+          "meaning": "The campaign produced more leads or purchases."
+        },
+        {
+          "metric": "ROAS",
+          "change": "+23.5%",
+          "meaning": "Revenue return improved for the spend used."
+        },
+        {
+          "metric": "Clicks",
+          "change": "+23.7%",
+          "meaning": "The campaign sent more traffic."
+        }
+      ],
+      "whyItMatters": "This is useful because the campaign may have created about INR 1,756 in efficiency gain.",
+      "adToFixFirst": {
+        "classification": "underperforming",
+        "score": 20,
+        "action": "Review this ad first and avoid increasing its budget today.",
+        "reasons": [
+          "This ad shows the weakest efficiency movement in the latest comparison."
+        ],
+        "id": "23861234567890123|adset_good_1|ad_good_1",
+        "campaignId": "23861234567890123",
+        "campaignName": "Kairo Skincare | Prospecting | Purchases",
+        "adsetName": "Broad Women 22-40",
+        "adName": "UGC Hook - Morning Routine",
+        "current": {
+          "spend": "INR 1,877",
+          "impressions": "58,560",
+          "clicks": "1,035",
+          "conversions": "34",
+          "ctr": "1.77%",
+          "cpc": "INR 1.81",
+          "cpa": "INR 55.2"
+        },
+        "previous": {
+          "spend": "INR 2,016",
+          "impressions": "62,400",
+          "clicks": "999",
+          "conversions": "31",
+          "ctr": "1.6%",
+          "cpc": "INR 2.02",
+          "cpa": "INR 65.03"
+        },
+        "deltas": {
+          "spend": "-6.9%",
+          "impressions": "-6.1%",
+          "clicks": "+3.6%",
+          "conversions": "+9.7%",
+          "ctr": "+10.6%",
+          "cpc": "-10.4%",
+          "cpa": "-15.1%"
+        }
+      },
+      "adToProtect": {
+        "classification": "outperforming",
+        "score": 85.7,
+        "action": "Keep this ad running and avoid editing it while it is improving.",
+        "reasons": [
+          "Conversions increased +88%."
+        ],
+        "id": "23861234567890123|adset_good_3|ad_good_3",
+        "campaignId": "23861234567890123",
+        "campaignName": "Kairo Skincare | Prospecting | Purchases",
+        "adsetName": "Interest Stack | Beauty Buyers",
+        "adName": "Creator Demo - 15 sec",
+        "current": {
+          "spend": "INR 2,098",
+          "impressions": "71,370",
+          "clicks": "1,336",
+          "conversions": "47",
+          "ctr": "1.87%",
+          "cpc": "INR 1.57",
+          "cpa": "INR 44.63"
+        },
+        "previous": {
+          "spend": "INR 1,296",
+          "impressions": "46,400",
+          "clicks": "837",
+          "conversions": "25",
+          "ctr": "1.8%",
+          "cpc": "INR 1.55",
+          "cpa": "INR 51.84"
+        },
+        "deltas": {
+          "spend": "+61.9%",
+          "impressions": "+53.8%",
+          "clicks": "+59.6%",
+          "conversions": "+88%",
+          "ctr": "+3.9%",
+          "cpc": "+1.3%",
+          "cpa": "-13.9%"
+        }
+      },
+      "adsToWatch": [],
+      "whatToDoNext": [
+        "Review this ad first and avoid increasing its budget today. Focus on \"UGC Hook - Morning Routine\" first.",
+        "Keep the current setup running.",
+        "Scale slowly, not aggressively.",
+        "Use the previous CPA or CPC as the point where you stop increasing budget."
+      ],
+      "watchNext": {
+        "timeframe": "Next 48-72 hours",
+        "metrics": [
+          "Conversions",
+          "CPA",
+          "CTR"
+        ],
+        "goodSign": "Conversions should continue rising while CPA remains within target range.",
+        "badSign": "The improvement disappears while cost rises."
+      },
+      "confidence": "High",
+      "urgency": "opportunity"
+    },
+    "campaign": {
+      "id": "23861234567890123",
+      "name": "Kairo Skincare | Prospecting | Purchases"
+    },
+    "period": {
+      "current": "2026-06-11",
+      "previous": "2026-06-10"
+    },
+    "dataQuality": {
+      "level": "strong",
+      "inputRows": 18,
+      "datedRows": 18,
+      "aggregatedDailyRows": 6,
+      "comparedRows": 2,
+      "minimumSpendForInsight": 1,
+      "minimumImpressionsForInsight": 100,
+      "warnings": []
+    },
+    "trustLayer": {
+      "level": "high",
+      "score": 100,
+      "reasons": [
+        "The recommendation is supported by enough delivery volume and usable metric data.",
+        "Compared against a 5-day baseline before 2026-06-11.",
+        "The movement is large enough to treat as a meaningful signal."
+      ],
+      "warnings": [],
+      "minimumThresholds": {
+        "spend": {
+          "passed": true,
+          "current": 5520,
+          "previous": 4800,
+          "required": 1
+        },
+        "impressions": {
+          "passed": true,
+          "current": 183000,
+          "previous": 160000,
+          "required": 100
+        },
+        "clicks": {
+          "passed": true,
+          "total": 6040,
+          "required": 20
+        },
+        "conversions": {
+          "passed": true,
+          "total": 194,
+          "required": 3
+        },
+        "totalSpend": 10320,
+        "totalImpressions": 343000
+      },
+      "metricReliability": {
+        "spend": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "impressions": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "reach": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "frequency": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "clicks": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "ctr": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "cpc": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "cpm": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "conversions": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "roas": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "cpa": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "conversionRate": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        }
+      },
+      "reliabilityFilters": [],
+      "baseline": {
+        "level": "strong",
+        "available": true,
+        "comparedDays": 5,
+        "requiredDays": 4,
+        "summary": "Compared against a 5-day baseline before 2026-06-11."
+      },
+      "rowCoverage": {
+        "inputRows": 18,
+        "filteredRows": 18,
+        "aggregatedDailyRows": 6
+      }
+    },
+    "trustGate": {
+      "level": "high",
+      "actionability": "opportunity",
+      "blocked": false,
+      "reasons": [],
+      "caveats": [],
+      "flags": {
+        "dataWindowMismatch": false,
+        "lowSpend": false,
+        "lowClicks": false,
+        "noConversions": false,
+        "noBaseline": false,
+        "noAdLevelData": false
+      },
+      "severityCap": null,
+      "decisionTypeOverride": null,
+      "primaryActionOverride": null
+    },
+    "baselineComparison": {
+      "available": true,
+      "level": "strong",
+      "comparedDays": 5,
+      "requiredDays": 4,
+      "lookbackDays": 7,
+      "baseline": {
+        "spend": 4500,
+        "impressions": 153400,
+        "reach": 122500,
+        "clicks": 2538,
+        "conversions": 77.2,
+        "roas": 37.7,
+        "frequency": 1.25,
+        "ctr": 1.65,
+        "cpc": 1.77,
+        "cpm": 29.34,
+        "cpa": 58.29,
+        "conversionRate": 3.04
+      },
+      "deltas": {
+        "spend": 22.67,
+        "impressions": 19.3,
+        "reach": 18.37,
+        "frequency": 0.8,
+        "clicks": 31.6,
+        "ctr": 10.91,
+        "cpc": -6.78,
+        "cpm": 2.79,
+        "conversions": 45.08,
+        "roas": 25.31,
+        "cpa": -15.44,
+        "conversionRate": 10.2
+      },
+      "findings": [
+        {
+          "metric": "conversions",
+          "label": "Conversions",
+          "current": 112,
+          "baseline": 77.2,
+          "delta": 45.1,
+          "direction": "good"
+        },
+        {
+          "metric": "clicks",
+          "label": "Clicks",
+          "current": 3340,
+          "baseline": 2538,
+          "delta": 31.6,
+          "direction": "good"
+        },
+        {
+          "metric": "roas",
+          "label": "ROAS",
+          "current": 47.24,
+          "baseline": 37.7,
+          "delta": 25.3,
+          "direction": "good"
+        },
+        {
+          "metric": "spend",
+          "label": "Spend",
+          "current": 5520,
+          "baseline": 4500,
+          "delta": 22.7,
+          "direction": "good"
+        },
+        {
+          "metric": "impressions",
+          "label": "Impressions",
+          "current": 183000,
+          "baseline": 153400,
+          "delta": 19.3,
+          "direction": "good"
+        }
+      ],
+      "summary": "Compared against a 5-day baseline before 2026-06-11."
+    },
+    "decisionType": {
+      "id": "opportunity",
+      "label": "Opportunity",
+      "description": "Performance improved enough to protect or scale carefully."
+    },
+    "topContributor": {
+      "available": true,
+      "level": "ad",
+      "name": "UGC Hook - Morning Routine",
+      "contributionSummary": "This ad shows the weakest efficiency movement in the latest comparison.",
+      "recommendedAction": "Review this ad first and avoid increasing its budget today.",
+      "evidence": [
+        "This ad shows the weakest efficiency movement in the latest comparison."
+      ],
+      "metrics": {
+        "current": {
+          "spend": "INR 1,877",
+          "impressions": "58,560",
+          "clicks": "1,035",
+          "conversions": "34",
+          "ctr": "1.77%",
+          "cpc": "INR 1.81",
+          "cpa": "INR 55.2"
+        },
+        "previous": {
+          "spend": "INR 2,016",
+          "impressions": "62,400",
+          "clicks": "999",
+          "conversions": "31",
+          "ctr": "1.6%",
+          "cpc": "INR 2.02",
+          "cpa": "INR 65.03"
+        },
+        "deltas": {
+          "spend": "-6.9%",
+          "impressions": "-6.1%",
+          "clicks": "+3.6%",
+          "conversions": "+9.7%",
+          "ctr": "+10.6%",
+          "cpc": "-10.4%",
+          "cpa": "-15.1%"
+        }
+      }
+    },
+    "followUp": {
+      "available": false,
+      "previousDecision": null,
+      "status": "inconclusive",
+      "summary": "",
+      "escalation": null
+    },
+    "displayMetrics": {
+      "spend": {
+        "label": "Spend",
+        "value": "INR 5,520",
+        "previousValue": "INR 4,800",
+        "delta": "+15%",
+        "deltaValue": 15,
+        "available": true,
+        "reason": null
+      },
+      "impressions": {
+        "label": "Impressions",
+        "value": "1,83,000",
+        "previousValue": "1,60,000",
+        "delta": "+14.4%",
+        "deltaValue": 14.4,
+        "available": true,
+        "reason": null
+      },
+      "reach": {
+        "label": "Reach",
+        "value": "1,45,000",
+        "previousValue": "1,27,000",
+        "delta": "+14.2%",
+        "deltaValue": 14.2,
+        "available": true,
+        "reason": null
+      },
+      "frequency": {
+        "label": "Frequency",
+        "value": "1.26",
+        "previousValue": "1.26",
+        "delta": "0%",
+        "deltaValue": 0,
+        "available": true,
+        "reason": null
+      },
+      "clicks": {
+        "label": "Clicks",
+        "value": "3,340",
+        "previousValue": "2,700",
+        "delta": "+23.7%",
+        "deltaValue": 23.7,
+        "available": true,
+        "reason": null
+      },
+      "ctr": {
+        "label": "CTR",
+        "value": "1.83%",
+        "previousValue": "1.69%",
+        "delta": "+8.3%",
+        "deltaValue": 8.3,
+        "available": true,
+        "reason": null
+      },
+      "cpc": {
+        "label": "CPC",
+        "value": "INR 1.65",
+        "previousValue": "INR 1.78",
+        "delta": "-7.3%",
+        "deltaValue": -7.3,
+        "available": true,
+        "reason": null
+      },
+      "cpm": {
+        "label": "CPM",
+        "value": "INR 30.16",
+        "previousValue": "INR 30",
+        "delta": "+0.5%",
+        "deltaValue": 0.5,
+        "available": true,
+        "reason": null
+      },
+      "conversions": {
+        "label": "Conversions",
+        "value": "112",
+        "previousValue": "82",
+        "delta": "+36.6%",
+        "deltaValue": 36.6,
+        "available": true,
+        "reason": null
+      },
+      "roas": {
+        "label": "ROAS",
+        "value": "47.24",
+        "previousValue": "38.24",
+        "delta": "+23.5%",
+        "deltaValue": 23.5,
+        "available": true,
+        "reason": null
+      },
+      "cpa": {
+        "label": "CPA",
+        "value": "INR 49.29",
+        "previousValue": "INR 58.54",
+        "delta": "-15.8%",
+        "deltaValue": -15.8,
+        "available": true,
+        "reason": null
+      },
+      "conversionRate": {
+        "label": "Conversion rate",
+        "value": "3.35%",
+        "previousValue": "3.04%",
+        "delta": "+10.2%",
+        "deltaValue": 10.2,
+        "available": true,
+        "reason": null
+      }
+    },
+    "reportGoalAssessment": {
+      "available": true,
+      "objective": "purchases",
+      "primaryKpi": "CPA",
+      "targetSummary": "CPA target: below INR 70",
+      "assessment": "CPA is currently INR 49.29 (-15.8%)."
+    },
+    "snapshot": {
+      "spend": "INR 5,520 (+15%)",
+      "impressions": "1,83,000 (+14.4%)",
+      "clicks": "3,340 (+23.7%)",
+      "ctr": "1.83% (+8.3%)",
+      "cpc": "INR 1.65 (-7.3%)",
+      "conversions": "112 (+36.6%)",
+      "roas": "47.24 (+23.5%)",
+      "cpa": "INR 49.29 (-15.8%)",
+      "frequency": "1.26 (0%)",
+      "cpm": "INR 30.16 (+0.5%)"
+    },
+    "keyDelta": "Positive conversions improvement (Conversions +36.6%)",
+    "likelyCause": {
+      "id": "healthy_scaling",
+      "archetype": "Healthy Scaling",
+      "confidence": {
+        "level": "High",
+        "score": 24
+      },
+      "summary": "Spend increased while efficiency held or improved, indicating the campaign absorbed more budget without quality loss.",
+      "evidence": [
+        "Spend +15% (5,520 vs 4,800)",
+        "Conversions +36.6% (112 vs 82)",
+        "CPA -15.8% (49.29 vs 58.54)",
+        "CTR +8.3% (1.83% vs 1.69%)"
+      ]
+    },
+    "financialImpact": {
+      "type": "positive",
+      "amount": 1756.2,
+      "currency": "INR",
+      "summary": "Estimated positive efficiency impact of INR 1,756.",
+      "method": "max(CPA savings on current conversions, value of incremental conversions at previous CPA)",
+      "displayAmount": "INR 1,756",
+      "shouldDisplayAmount": true,
+      "percentOfSpend": 17,
+      "caveats": []
+    },
+    "decision": "Continue scaling gradually while protecting CPA and CTR thresholds.",
+    "recommendations": [
+      {
+        "priority": "P1",
+        "urgency": "high",
+        "title": "Protect the winning setup",
+        "action": "Continue scaling gradually while protecting CPA and CTR thresholds.",
+        "reason": "Spend increased while efficiency held or improved, indicating the campaign absorbed more budget without quality loss."
+      },
+      {
+        "priority": "P2",
+        "urgency": "low",
+        "title": "Scale gradually",
+        "action": "Increase budget in controlled steps and keep the previous CPA/CPC as the rollback threshold.",
+        "reason": "Positive movement is useful only if efficiency holds after additional spend."
+      }
+    ],
+    "diagnosticChecks": [
+      "Break down the top anomaly by campaign, ad set, ad, placement, device, and geo.",
+      "Compare against the previous 7-day average before making irreversible changes.",
+      "Confirm tracking and attribution settings did not change."
+    ],
+    "monitoringPlan": {
+      "window": "next_48_to_72_hours",
+      "cadence": "check_every_12_hours",
+      "watchMetrics": [
+        "Conversions",
+        "ROAS",
+        "Clicks"
+      ],
+      "successSignal": "Conversions should continue rising while CPA remains within target range.",
+      "rollbackSignal": "CPA or CPC rises while CTR or conversions stop improving."
+    },
+    "guardrails": [
+      {
+        "metric": "cpa",
+        "rule": "Use previous CPA as the first rollback benchmark.",
+        "current": "INR 49.29",
+        "previous": "INR 58.54",
+        "delta": "-15.8%"
+      },
+      {
+        "metric": "ctr",
+        "rule": "Treat further CTR decline as evidence that creative or audience fit is weakening.",
+        "current": "1.83%",
+        "previous": "1.69%",
+        "delta": "+8.3%"
+      }
+    ],
+    "nextSignal": "Conversions should continue rising while CPA remains within target range.",
+    "severity": {
+      "level": "high",
+      "score": 83.4
+    },
+    "metrics": {
+      "current": {
+        "date": "2026-06-11",
+        "campaignId": "23861234567890123",
+        "campaignName": "Kairo Skincare | Prospecting | Purchases",
+        "spend": 5520,
+        "impressions": 183000,
+        "reach": 145000,
+        "frequency": 1.26,
+        "clicks": 3340,
+        "ctr": 1.83,
+        "cpc": 1.65,
+        "cpm": 30.16,
+        "conversions": 112,
+        "roas": 47.24,
+        "cpa": 49.29,
+        "conversionRate": 3.35
+      },
+      "previous": {
+        "date": "2026-06-10",
+        "campaignId": "23861234567890123",
+        "campaignName": "Kairo Skincare | Prospecting | Purchases",
+        "spend": 4800,
+        "impressions": 160000,
+        "reach": 127000,
+        "frequency": 1.26,
+        "clicks": 2700,
+        "ctr": 1.69,
+        "cpc": 1.78,
+        "cpm": 30,
+        "conversions": 82,
+        "roas": 38.24,
+        "cpa": 58.54,
+        "conversionRate": 3.04
+      },
+      "deltas": {
+        "spend": 15,
+        "impressions": 14.37,
+        "reach": 14.17,
+        "frequency": 0,
+        "clicks": 23.7,
+        "ctr": 8.28,
+        "cpc": -7.3,
+        "cpm": 0.53,
+        "conversions": 36.59,
+        "roas": 23.54,
+        "cpa": -15.8,
+        "conversionRate": 10.2
+      }
+    },
+    "rankedAnomalies": [
+      {
+        "metric": "conversions",
+        "label": "Conversions",
+        "current": 112,
+        "previous": 82,
+        "delta": 36.6,
+        "direction": "good",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 23.8
+      },
+      {
+        "metric": "roas",
+        "label": "ROAS",
+        "current": 47.24,
+        "previous": 38.24,
+        "delta": 23.5,
+        "direction": "good",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 15.3
+      },
+      {
+        "metric": "clicks",
+        "label": "Clicks",
+        "current": 3340,
+        "previous": 2700,
+        "delta": 23.7,
+        "direction": "good",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 12.3
+      },
+      {
+        "metric": "cpa",
+        "label": "CPA",
+        "current": 49.29,
+        "previous": 58.54,
+        "delta": -15.8,
+        "direction": "good",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 10.3
+      },
+      {
+        "metric": "conversionRate",
+        "label": "Conversion rate",
+        "current": 3.35,
+        "previous": 3.04,
+        "delta": 10.2,
+        "direction": "good",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 6
+      }
+    ],
+    "segmentContributors": [
+      {
+        "id": "23861234567890123|adset_good_3|ad_good_3",
+        "campaignId": "23861234567890123",
+        "campaignName": "Kairo Skincare | Prospecting | Purchases",
+        "adsetName": "Interest Stack | Beauty Buyers",
+        "adName": "Creator Demo - 15 sec",
+        "current": {
+          "spend": 2097.6,
+          "impressions": 71370,
+          "clicks": 1336,
+          "conversions": 47,
+          "ctr": 1.87,
+          "cpc": 1.57,
+          "cpa": 44.63
+        },
+        "previous": {
+          "spend": 1296,
+          "impressions": 46400,
+          "clicks": 837,
+          "conversions": 25,
+          "ctr": 1.8,
+          "cpc": 1.55,
+          "cpa": 51.84
+        },
+        "deltas": {
+          "spend": 801.6,
+          "impressions": 24970,
+          "clicks": 499,
+          "conversions": 22
+        },
+        "contributionScore": 2738.6
+      },
+      {
+        "id": "23861234567890123|adset_good_2|ad_good_2",
+        "campaignId": "23861234567890123",
+        "campaignName": "Kairo Skincare | Prospecting | Purchases",
+        "adsetName": "Lookalike Purchasers 2%",
+        "adName": "Static Before After - Clean Skin",
+        "current": {
+          "spend": 1545.6,
+          "impressions": 53070,
+          "clicks": 969,
+          "conversions": 31,
+          "ctr": 1.83,
+          "cpc": 1.6,
+          "cpa": 49.86
+        },
+        "previous": {
+          "spend": 1488,
+          "impressions": 51200,
+          "clicks": 864,
+          "conversions": 26,
+          "ctr": 1.69,
+          "cpc": 1.72,
+          "cpa": 57.23
+        },
+        "deltas": {
+          "spend": 57.6,
+          "impressions": 1870,
+          "clicks": 105,
+          "conversions": 5
+        },
+        "contributionScore": 472.6
+      },
+      {
+        "id": "23861234567890123|adset_good_1|ad_good_1",
+        "campaignId": "23861234567890123",
+        "campaignName": "Kairo Skincare | Prospecting | Purchases",
+        "adsetName": "Broad Women 22-40",
+        "adName": "UGC Hook - Morning Routine",
+        "current": {
+          "spend": 1876.8,
+          "impressions": 58560,
+          "clicks": 1035,
+          "conversions": 34,
+          "ctr": 1.77,
+          "cpc": 1.81,
+          "cpa": 55.2
+        },
+        "previous": {
+          "spend": 2016,
+          "impressions": 62400,
+          "clicks": 999,
+          "conversions": 31,
+          "ctr": 1.6,
+          "cpc": 2.02,
+          "cpa": 65.03
+        },
+        "deltas": {
+          "spend": -139.2,
+          "impressions": -3840,
+          "clicks": 36,
+          "conversions": 3
+        },
+        "contributionScore": 307.2
+      }
+    ],
+    "adDiagnostics": {
+      "fixFirst": {
+        "classification": "underperforming",
+        "score": 20,
+        "action": "Review this ad first and avoid increasing its budget today.",
+        "reasons": [
+          "This ad shows the weakest efficiency movement in the latest comparison."
+        ],
+        "id": "23861234567890123|adset_good_1|ad_good_1",
+        "campaignId": "23861234567890123",
+        "campaignName": "Kairo Skincare | Prospecting | Purchases",
+        "adsetName": "Broad Women 22-40",
+        "adName": "UGC Hook - Morning Routine",
+        "current": {
+          "spend": "INR 1,877",
+          "impressions": "58,560",
+          "clicks": "1,035",
+          "conversions": "34",
+          "ctr": "1.77%",
+          "cpc": "INR 1.81",
+          "cpa": "INR 55.2"
+        },
+        "previous": {
+          "spend": "INR 2,016",
+          "impressions": "62,400",
+          "clicks": "999",
+          "conversions": "31",
+          "ctr": "1.6%",
+          "cpc": "INR 2.02",
+          "cpa": "INR 65.03"
+        },
+        "deltas": {
+          "spend": "-6.9%",
+          "impressions": "-6.1%",
+          "clicks": "+3.6%",
+          "conversions": "+9.7%",
+          "ctr": "+10.6%",
+          "cpc": "-10.4%",
+          "cpa": "-15.1%"
+        }
+      },
+      "protect": {
+        "classification": "outperforming",
+        "score": 85.7,
+        "action": "Keep this ad running and avoid editing it while it is improving.",
+        "reasons": [
+          "Conversions increased +88%."
+        ],
+        "id": "23861234567890123|adset_good_3|ad_good_3",
+        "campaignId": "23861234567890123",
+        "campaignName": "Kairo Skincare | Prospecting | Purchases",
+        "adsetName": "Interest Stack | Beauty Buyers",
+        "adName": "Creator Demo - 15 sec",
+        "current": {
+          "spend": "INR 2,098",
+          "impressions": "71,370",
+          "clicks": "1,336",
+          "conversions": "47",
+          "ctr": "1.87%",
+          "cpc": "INR 1.57",
+          "cpa": "INR 44.63"
+        },
+        "previous": {
+          "spend": "INR 1,296",
+          "impressions": "46,400",
+          "clicks": "837",
+          "conversions": "25",
+          "ctr": "1.8%",
+          "cpc": "INR 1.55",
+          "cpa": "INR 51.84"
+        },
+        "deltas": {
+          "spend": "+61.9%",
+          "impressions": "+53.8%",
+          "clicks": "+59.6%",
+          "conversions": "+88%",
+          "ctr": "+3.9%",
+          "cpc": "+1.3%",
+          "cpa": "-13.9%"
+        }
+      },
+      "watch": [],
+      "all": [
+        {
+          "classification": "outperforming",
+          "score": 85.7,
+          "action": "Keep this ad running and avoid editing it while it is improving.",
+          "reasons": [
+            "Conversions increased +88%."
+          ],
+          "id": "23861234567890123|adset_good_3|ad_good_3",
+          "campaignId": "23861234567890123",
+          "campaignName": "Kairo Skincare | Prospecting | Purchases",
+          "adsetName": "Interest Stack | Beauty Buyers",
+          "adName": "Creator Demo - 15 sec",
+          "current": {
+            "spend": "INR 2,098",
+            "impressions": "71,370",
+            "clicks": "1,336",
+            "conversions": "47",
+            "ctr": "1.87%",
+            "cpc": "INR 1.57",
+            "cpa": "INR 44.63"
+          },
+          "previous": {
+            "spend": "INR 1,296",
+            "impressions": "46,400",
+            "clicks": "837",
+            "conversions": "25",
+            "ctr": "1.8%",
+            "cpc": "INR 1.55",
+            "cpa": "INR 51.84"
+          },
+          "deltas": {
+            "spend": "+61.9%",
+            "impressions": "+53.8%",
+            "clicks": "+59.6%",
+            "conversions": "+88%",
+            "ctr": "+3.9%",
+            "cpc": "+1.3%",
+            "cpa": "-13.9%"
+          }
+        },
+        {
+          "classification": "outperforming",
+          "score": 21.5,
+          "action": "Keep this ad running and avoid editing it while it is improving.",
+          "reasons": [
+            "This ad shows the strongest positive movement in the latest comparison."
+          ],
+          "id": "23861234567890123|adset_good_2|ad_good_2",
+          "campaignId": "23861234567890123",
+          "campaignName": "Kairo Skincare | Prospecting | Purchases",
+          "adsetName": "Lookalike Purchasers 2%",
+          "adName": "Static Before After - Clean Skin",
+          "current": {
+            "spend": "INR 1,546",
+            "impressions": "53,070",
+            "clicks": "969",
+            "conversions": "31",
+            "ctr": "1.83%",
+            "cpc": "INR 1.6",
+            "cpa": "INR 49.86"
+          },
+          "previous": {
+            "spend": "INR 1,488",
+            "impressions": "51,200",
+            "clicks": "864",
+            "conversions": "26",
+            "ctr": "1.69%",
+            "cpc": "INR 1.72",
+            "cpa": "INR 57.23"
+          },
+          "deltas": {
+            "spend": "+3.9%",
+            "impressions": "+3.7%",
+            "clicks": "+12.2%",
+            "conversions": "+19.2%",
+            "ctr": "+8.3%",
+            "cpc": "-7%",
+            "cpa": "-12.9%"
+          }
+        },
+        {
+          "classification": "underperforming",
+          "score": 20,
+          "action": "Review this ad first and avoid increasing its budget today.",
+          "reasons": [
+            "This ad shows the weakest efficiency movement in the latest comparison."
+          ],
+          "id": "23861234567890123|adset_good_1|ad_good_1",
+          "campaignId": "23861234567890123",
+          "campaignName": "Kairo Skincare | Prospecting | Purchases",
+          "adsetName": "Broad Women 22-40",
+          "adName": "UGC Hook - Morning Routine",
+          "current": {
+            "spend": "INR 1,877",
+            "impressions": "58,560",
+            "clicks": "1,035",
+            "conversions": "34",
+            "ctr": "1.77%",
+            "cpc": "INR 1.81",
+            "cpa": "INR 55.2"
+          },
+          "previous": {
+            "spend": "INR 2,016",
+            "impressions": "62,400",
+            "clicks": "999",
+            "conversions": "31",
+            "ctr": "1.6%",
+            "cpc": "INR 2.02",
+            "cpa": "INR 65.03"
+          },
+          "deltas": {
+            "spend": "-6.9%",
+            "impressions": "-6.1%",
+            "clicks": "+3.6%",
+            "conversions": "+9.7%",
+            "ctr": "+10.6%",
+            "cpc": "-10.4%",
+            "cpa": "-15.1%"
+          }
+        }
+      ]
+    }
+  },
+  "reportRun": null,
+  "signals": [],
+  "activities": [],
+  "emailSubject": "Opportunity: Protect UGC Hook - Morning Routine in Kairo Skincare | Prospecting | Purchases - 2026-06-11",
+  "emailHtml": "<!doctype html>\n<html>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <title>Opportunity: Protect UGC Hook - Morning Routine in Kairo Skincare | Prospecting | Purchases - 2026-06-11</title>\n  </head>\n  <body style=\"margin:0;padding:0;background:#e5e7eb;font-family:Inter,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,Arial,Helvetica,sans-serif;color:#111827;\">\n    <div style=\"display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;\">\n      Keep the current setup running and scale only in small controlled steps. Start with &quot;UGC Hook - Morning Routine&quot;.\n    </div>\n    <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"background:#e5e7eb;margin:0;padding:28px 0;\">\n      <tr>\n        <td align=\"center\" style=\"padding:0 12px;\">\n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:720px;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #d1d5db;box-shadow:0 16px 38px rgba(15,23,42,.13);\">\n            \n            \n    <tr>\n      <td style=\"padding:0;background:#0f172a;color:#ffffff;\">\n        <div style=\"height:6px;background:#059669;line-height:6px;font-size:6px;\">&nbsp;</div>\n        <div style=\"padding:24px 28px 22px;background:#0f172a;\">\n        <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td style=\"vertical-align:top;\">\n              <div style=\"font-size:12px;line-height:17px;color:#94a3b8;font-weight:800;text-transform:uppercase;letter-spacing:.08em;\">Sample report</div>\n              <div style=\"font-size:26px;line-height:32px;font-weight:800;margin-top:7px;color:#ffffff;\">Kairo Skincare | Prospecting | Purchases</div>\n              <div style=\"font-size:14px;line-height:20px;color:#cbd5e1;margin-top:6px;\">2026-06-10 vs 2026-06-11</div>\n            </td>\n            <td align=\"right\" style=\"vertical-align:top;\">\n              <span style=\"display:inline-block;background:#059669;color:#ffffff;font-size:12px;line-height:18px;font-weight:800;padding:8px 12px;border-radius:999px;text-transform:uppercase;letter-spacing:.03em;\">Opportunity</span>\n            </td>\n          </tr>\n        </table>\n        </div>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:22px 28px 18px;background:#ffffff;\">\n        \n    <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border:1px solid #a7f3d0;border-top:3px solid #34d399;border-radius:22px;background:#f6fffb;overflow:hidden;box-shadow:0 14px 32px rgba(15,23,42,.08);\">\n      <tr>\n        <td style=\"padding:20px 20px 18px;\">\n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n            <tr>\n              <td style=\"vertical-align:top;font-size:12px;line-height:18px;color:#64748b;font-weight:700;\">\n                2026-06-10 vs 2026-06-11\n              </td>\n              <td align=\"right\" style=\"vertical-align:top;\">\n                <span style=\"display:inline-block;background:#059669;color:#ffffff;font-size:12px;line-height:16px;font-weight:800;padding:7px 10px;border-radius:999px;\">Opportunity</span>\n                <span style=\"display:inline-block;margin-left:6px;background:#ffffff;border:1px solid #a7f3d0;color:#065f46;font-size:12px;line-height:16px;font-weight:800;padding:7px 10px;border-radius:999px;\">Scale Signal</span>\n              </td>\n            </tr>\n          </table>\n          <div style=\"font-size:12px;line-height:18px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-top:15px;\">Sample report</div>\n          <div style=\"font-size:27px;line-height:33px;color:#0f172a;font-weight:800;margin-top:4px;\">Protect the winning setup</div>\n          <div style=\"font-size:15px;line-height:23px;color:#334155;font-weight:400;margin-top:8px;\">Scaling held: spend increased 15%, while conversions rose 36.6% and CPA improved 15.8%.</div>\n          \n            <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:15px;\">\n              <tr>\n                \n    <td style=\"width:33.33%;padding:0 8px 0 0;vertical-align:top;\">\n      <div style=\"border:1px solid #86efac;border-radius:15px;background:#dcfce7;padding:11px 12px;box-shadow:0 1px 0 rgba(15,23,42,.03);\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Conversions</div>\n        <div style=\"font-size:16px;line-height:21px;color:#0f172a;font-weight:700;margin-top:3px;\">112</div>\n        <div style=\"display:inline-block;margin-top:6px;border-radius:999px;background:#bbf7d0;color:#14532d;padding:4px 7px;font-size:12px;line-height:14px;font-weight:800;\">+36.6%</div>\n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 0 0;vertical-align:top;\">\n      <div style=\"border:1px solid #a7f3d0;border-radius:15px;background:#ecfdf5;padding:11px 12px;box-shadow:0 1px 0 rgba(15,23,42,.03);\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CPA</div>\n        <div style=\"font-size:16px;line-height:21px;color:#0f172a;font-weight:700;margin-top:3px;\">INR 49.29</div>\n        <div style=\"display:inline-block;margin-top:6px;border-radius:999px;background:#d1fae5;color:#065f46;padding:4px 7px;font-size:12px;line-height:14px;font-weight:800;\">-15.8%</div>\n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 0 0;vertical-align:top;\">\n      <div style=\"border:1px solid #bbf7d0;border-radius:15px;background:#f0fdf4;padding:11px 12px;box-shadow:0 1px 0 rgba(15,23,42,.03);\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CTR</div>\n        <div style=\"font-size:16px;line-height:21px;color:#0f172a;font-weight:700;margin-top:3px;\">1.83%</div>\n        <div style=\"display:inline-block;margin-top:6px;border-radius:999px;background:#dcfce7;color:#166534;padding:4px 7px;font-size:12px;line-height:14px;font-weight:800;\">+8.3%</div>\n      </div>\n    </td>\n                \n              </tr>\n            </table>\n          \n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:15px;\">\n            <tr>\n              <td style=\"padding:14px 15px;background:#ffffff;border:1px solid #a7f3d0;border-top:2px solid #34d399;border-radius:16px;box-shadow:0 6px 16px rgba(15,23,42,.06);\">\n                <div style=\"font-size:11px;line-height:15px;color:#065f46;font-weight:800;text-transform:uppercase;letter-spacing:.06em;\">Do this now</div>\n                <div style=\"font-size:15px;line-height:22px;color:#0f172a;font-weight:800;margin-top:4px;\">Keep the current setup running and scale only in small controlled steps. Start with &quot;UGC Hook - Morning Routine&quot;.</div>\n              </td>\n            </tr>\n            <tr><td style=\"height:8px;font-size:8px;line-height:8px;\">&nbsp;</td></tr>\n            <tr>\n              <td style=\"padding:12px 14px;background:#f8fafc;border:1px solid #d1fae5;border-radius:15px;\">\n                <div style=\"font-size:11px;line-height:15px;color:#065f46;font-weight:800;text-transform:uppercase;letter-spacing:.06em;\">Do not</div>\n                <div style=\"font-size:14px;line-height:21px;color:#334155;font-weight:500;margin-top:4px;\">Do not make major edits to the winning ad or audience today.</div>\n              </td>\n            </tr>\n          </table>\n          <div style=\"margin-top:13px;\">\n            <span style=\"display:inline-block;margin:0 7px 7px 0;background:#ffffff;border:1px solid #a7f3d0;border-radius:999px;padding:7px 10px;font-size:12px;line-height:15px;color:#0f172a;font-weight:700;\">Confidence: High</span><span style=\"display:inline-block;margin:0 7px 7px 0;background:#ffffff;border:1px solid #a7f3d0;border-radius:999px;padding:7px 10px;font-size:12px;line-height:15px;color:#0f172a;font-weight:700;\">Signal strength: Strong</span><span style=\"display:inline-block;margin:0 7px 7px 0;background:#ffffff;border:1px solid #a7f3d0;border-radius:999px;padding:7px 10px;font-size:12px;line-height:15px;color:#0f172a;font-weight:700;\">Est. gain: INR 1,756</span>\n          </div>\n        </td>\n      </tr>\n    </table>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:0 28px 20px;background:#ffffff;\">\n        <div style=\"border:1px solid #e2e8f0;border-radius:16px;background:#ffffff;overflow:hidden;\">\n          <div style=\"padding:14px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;\">\n            <div style=\"font-size:16px;line-height:22px;color:#0f172a;font-weight:800;\">Details / evidence</div>\n            <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:2px;\">Supporting signals behind the summary decision.</div>\n          </div>\n          <div style=\"padding:14px 16px 4px;\">\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Expanded metrics</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">Additional useful metrics beyond the summary card.</div>\n      \n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n        \n          <tr>\n            \n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #a7f3d0;border-radius:12px;padding:12px;background:#ecfdf5;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Clicks</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">3,340</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#d1fae5;color:#065f46;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">+23.7%</div>\n        \n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #bbf7d0;border-radius:12px;padding:12px;background:#f0fdf4;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CPC</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">INR 1.65</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#dcfce7;color:#166534;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">-7.3%</div>\n        \n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#f8fafc;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Spend</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">INR 5,520</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#e2e8f0;color:#334155;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">+15%</div>\n        \n      </div>\n    </td>\n            \n          </tr>\n        \n          <tr>\n            \n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #a7f3d0;border-radius:12px;padding:12px;background:#ecfdf5;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">ROAS</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">47.24</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#d1fae5;color:#065f46;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">+23.5%</div>\n        \n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#f8fafc;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CPM</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">INR 30.16</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#e2e8f0;color:#334155;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">+0.5%</div>\n        \n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#f8fafc;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Frequency</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">1.26</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#e2e8f0;color:#334155;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">0%</div>\n        \n      </div>\n    </td>\n            \n          </tr>\n        \n      </table>\n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Evidence</div>\n      <div style=\"height:8px;font-size:8px;line-height:8px;\">&nbsp;</div>\n      \n      <div style=\"font-size:14px;line-height:22px;color:#0f172a;font-weight:700;margin-bottom:8px;\">Scaling held: spend increased 15%, while conversions rose 36.6% and CPA improved 15.8%.</div>\n      \n        <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;overflow:hidden;\">\n          \n            <tr>\n              <td width=\"96\" style=\"padding:11px 12px;vertical-align:top;\">\n                <span style=\"display:inline-block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:999px;padding:6px 8px;font-size:12px;line-height:15px;color:#0f172a;font-weight:800;\">Conversions +36.6%</span>\n              </td>\n              <td style=\"padding:11px 12px 11px 0;vertical-align:middle;\">\n                <div style=\"font-size:13px;line-height:20px;color:#475569;\">The campaign produced more leads or purchases.</div>\n              </td>\n            </tr>\n          \n            <tr>\n              <td width=\"96\" style=\"padding:11px 12px;vertical-align:top;border-top:1px solid #e2e8f0;\">\n                <span style=\"display:inline-block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:999px;padding:6px 8px;font-size:12px;line-height:15px;color:#0f172a;font-weight:800;\">ROAS +23.5%</span>\n              </td>\n              <td style=\"padding:11px 12px 11px 0;vertical-align:middle;border-top:1px solid #e2e8f0;\">\n                <div style=\"font-size:13px;line-height:20px;color:#475569;\">Revenue return improved for the spend used.</div>\n              </td>\n            </tr>\n          \n        </table>\n      \n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Winning contributor</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">The strongest positive contributor to protect.</div>\n      \n      <div style=\"border:1px solid #a7f3d0;border-radius:12px;background:#f6fffb;padding:12px 14px;\">\n        <div style=\"font-size:15px;line-height:22px;color:#0f172a;font-weight:800;\">UGC Hook - Morning Routine</div>\n        <div style=\"font-size:13px;line-height:20px;color:#475569;margin-top:4px;\">This contributor drove the strongest positive movement while efficiency improved.</div>\n        <div style=\"font-size:13px;line-height:20px;color:#0f172a;margin-top:8px;\"><b>Recommended action:</b> Keep this winner running and use its hook, audience, or offer angle as the base for 2-3 controlled variations.</div>\n        \n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:8px;\">\n            \n              <tr>\n                <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#059669;vertical-align:top;\">&bull;</td>\n                <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">Conversions +9.7%</td>\n              </tr>\n            \n              <tr>\n                <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#059669;vertical-align:top;\">&bull;</td>\n                <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">CPA -15.1%</td>\n              </tr>\n            \n          </table>\n        \n      </div>\n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Next actions</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">The shortest useful sequence.</div>\n      \n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-bottom:8px;border:1px solid #a7f3d0;border-radius:12px;background:#f6fffb;\">\n        <tr>\n          <td width=\"42\" style=\"padding:10px 0 10px 12px;vertical-align:top;\">\n            <div style=\"width:26px;height:26px;border-radius:999px;background:#059669;color:#ffffff;text-align:center;font-size:13px;line-height:26px;font-weight:800;\">1</div>\n          </td>\n          <td style=\"padding:10px 12px 10px 4px;font-size:14px;line-height:21px;color:#0f172a;font-weight:800;\">Leave the winning ad and audience unchanged.</td>\n        </tr>\n      </table>\n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-bottom:8px;border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;\">\n        <tr>\n          <td width=\"42\" style=\"padding:10px 0 10px 12px;vertical-align:top;\">\n            <div style=\"width:26px;height:26px;border-radius:999px;background:#e2e8f0;color:#334155;text-align:center;font-size:13px;line-height:26px;font-weight:800;\">2</div>\n          </td>\n          <td style=\"padding:10px 12px 10px 4px;font-size:14px;line-height:21px;color:#0f172a;font-weight:500;\">Increase budget only in small steps.</td>\n        </tr>\n      </table>\n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-bottom:8px;border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;\">\n        <tr>\n          <td width=\"42\" style=\"padding:10px 0 10px 12px;vertical-align:top;\">\n            <div style=\"width:26px;height:26px;border-radius:999px;background:#e2e8f0;color:#334155;text-align:center;font-size:13px;line-height:26px;font-weight:800;\">3</div>\n          </td>\n          <td style=\"padding:10px 12px 10px 4px;font-size:14px;line-height:21px;color:#0f172a;font-weight:500;\">Roll back if CPA or CPC crosses the previous benchmark.</td>\n        </tr>\n      </table>\n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Watch next</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">Timeframe: Next 48-72 hours</div>\n      \n      <div style=\"margin-bottom:9px;\"><span style=\"display:inline-block;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:999px;padding:6px 9px;margin:0 5px 5px 0;font-size:12px;line-height:15px;font-weight:700;\">Conversions</span><span style=\"display:inline-block;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:999px;padding:6px 9px;margin:0 5px 5px 0;font-size:12px;line-height:15px;font-weight:700;\">CPA</span><span style=\"display:inline-block;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:999px;padding:6px 9px;margin:0 5px 5px 0;font-size:12px;line-height:15px;font-weight:700;\">CTR</span></div>\n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n        <tr><td style=\"padding:10px 12px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;font-size:13px;line-height:20px;color:#064e3b;\"><b>Good:</b> Conversions should continue rising while CPA remains within target range.</td></tr>\n        <tr><td style=\"height:7px;font-size:7px;line-height:7px;\">&nbsp;</td></tr>\n        <tr><td style=\"padding:10px 12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;font-size:13px;line-height:20px;color:#9a3412;\"><b>Bad:</b> The improvement disappears while cost rises.</td></tr>\n      </table>\n    </div>\n          </div>\n        </div>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:0 28px 24px;background:#ffffff;\">\n        <div style=\"border:1px solid #e2e8f0;border-radius:16px;background:#f8fafc;padding:14px 16px;\">\n          <div style=\"font-size:16px;line-height:22px;color:#0f172a;font-weight:800;\">Diagnostics</div>\n          <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:2px;\">Reliability and data notes behind this recommendation.</div>\n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:12px;\">\n            <tr>\n              <td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Data confidence:</b> Strong</td>\n            </tr>\n            <tr>\n              <td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Reliability:</b> High - The recommendation is supported by enough delivery volume and usable metric data.</td>\n            </tr>\n            <tr><td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Data score:</b> 95/100+</td></tr>\n            <tr>\n              <td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Baseline:</b> Compared against a 5-day baseline before 2026-06-11.</td>\n            </tr>\n            \n          </table>\n          \n          \n            <div style=\"font-size:13px;line-height:20px;color:#475569;margin-top:8px;\"><b>Diagnostic checks:</b></div>\n            <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:4px;\">\n              \n                <tr>\n                  <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#64748b;vertical-align:top;\">&bull;</td>\n                  <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">Break down the top anomaly by campaign, ad set, ad, placement, device, and geo.</td>\n                </tr>\n              \n                <tr>\n                  <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#64748b;vertical-align:top;\">&bull;</td>\n                  <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">Compare against the previous 7-day average before making irreversible changes.</td>\n                </tr>\n              \n                <tr>\n                  <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#64748b;vertical-align:top;\">&bull;</td>\n                  <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">Confirm tracking and attribution settings did not change.</td>\n                </tr>\n              \n            </table>\n          \n        </div>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:20px 28px;background:#0f172a;border-top:1px solid #1e293b;\">\n        <div style=\"font-size:12px;line-height:18px;color:#cbd5e1;\">\n          Generated by Narrative on 13/6/2026, 12:35:59 am. This report is based on Meta Ads data available at send time.\n        </div>\n      </td>\n    </tr>\n          </table>\n        </td>\n      </tr>\n    </table>\n  </body>\n</html>",
+  "comparison": {
+    "mode": "mock_daily_rows",
+    "period": {
+      "current": "2026-06-11",
+      "previous": "2026-06-10"
+    },
+    "rowCount": 18
+  }
+}

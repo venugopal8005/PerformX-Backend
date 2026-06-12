@@ -1,154 +1,450 @@
-import { Report } from "../models/reports/metaReports.model.js";
-export const createReport = async (req, res) => {
-    try {
-        console.log(req.body);
-        const userId = req.user.id;
-        const { ad_account_id, email, frequency } = req.body.formData;
+import { Report } from "../models/Report.js";
+import { ReportRun } from "../models/ReportRun.js";
+import { Signal } from "../models/Signal.js";
+import { recordActivity } from "../services/activityRecorder.service.js";
+import { logAction, logError } from "../utils/controllerLogger.js";
+import { getNextRunAt, normalizeReportSchedule } from "../utils/reportSchedule.js";
 
-        if (!ad_account_id || !email || !frequency) {
-            return res.status(400).json({
-                success: false,
-                message: "All fields required",
-            });
-        }
+const SCOPE = "Reports";
+const DEFAULT_REPORT_NAME = "Meta Ads Monitor";
 
-        const report = await Report.create({
-            user_id: userId,
-            ad_account_id,
-            email,
-            frequency,
-            is_active: false,
-            last_run_at: null,
-            next_run_at: null,
-        });
-            console.log("report saved");
-        return res.status(201).json({
-            success: true,
-            report,
-        });
-
-    } catch (err) {
-        console.error(err);
-        return res.status(500).json({
-            success: false,
-            message: "Failed to create report",
-        });
-    }
+const normalizeReportName = (value) => {
+  const name = String(value || "").trim();
+  return name || DEFAULT_REPORT_NAME;
 };
 
+const normalizeRecipients = (value, fallbackEmail) => {
+  const recipients = Array.isArray(value) ? value : fallbackEmail ? [fallbackEmail] : [];
 
-// utility (moved out of controller)
-const getNextRun = (frequency) => {
-  const now = new Date();
+  return recipients
+    .map((email) => String(email || "").trim().toLowerCase())
+    .filter(Boolean);
+};
 
-  switch (frequency) {
-    case "15-min":
-      return new Date(now.getTime() + 15 * 60 * 1000);
+const normalizeStatus = (value) => {
+  const status = String(value || "").trim().toLowerCase();
 
-    case "hourly":
-      return new Date(now.getTime() + 60 * 60 * 1000);
+  if (["active", "true", "1", "yes", "on"].includes(status)) return "active";
+  if (["paused", "inactive", "false", "0", "no", "off"].includes(status)) {
+    return "paused";
+  }
 
-    case "daily":
-      return new Date(now.setDate(now.getDate() + 1));
+  return "paused";
+};
 
-    case "weekly":
-      return new Date(now.setDate(now.getDate() + 7));
+const normalizeCampaigns = (campaigns = []) => {
+  if (!Array.isArray(campaigns)) return [];
 
-    case "monthly":
-      return new Date(now.setMonth(now.getMonth() + 1));
+  return campaigns
+    .map((campaign) => ({
+      campaign_id: String(campaign.campaign_id || campaign.campaignId || "").trim(),
+      campaign_name: String(campaign.campaign_name || campaign.campaignName || "").trim(),
+    }))
+    .filter((campaign) => campaign.campaign_id && campaign.campaign_name);
+};
 
-    default:
-      return now;
+const requireAgency = (req, res) => {
+  const agencyId = req.user?.agencyId;
+
+  if (!agencyId) {
+    res.status(401).json({
+      success: false,
+      message: "Agency context missing from auth token",
+    });
+    return null;
+  }
+
+  return agencyId;
+};
+
+export const createReport = async (req, res) => {
+  try {
+    const agencyId = requireAgency(req, res);
+    if (!agencyId) return;
+
+    const userId = req.user.id;
+    const formData = req.body.formData || req.body || {};
+    const clientId = formData.client_id || formData.clientId;
+    const recipients = normalizeRecipients(formData.recipients, formData.email);
+    const type = formData.type || formData.frequency || "daily";
+    const name = normalizeReportName(formData.name);
+    let scheduleConfig;
+
+    logAction(SCOPE, "CREATE_REPORT_REQUEST", {
+      agencyId,
+      userId,
+      clientId,
+      formData,
+    }, "blue");
+
+    if (!clientId || recipients.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "client_id and at least one recipient are required",
+      });
+    }
+
+    try {
+      scheduleConfig = normalizeReportSchedule({
+        ...formData,
+        type,
+      });
+    } catch (err) {
+      return res.status(400).json({
+        success: false,
+        message: err.message,
+      });
+    }
+
+    const report = await Report.create({
+      agency_id: agencyId,
+      client_id: clientId,
+      created_by: userId,
+      name,
+      type: scheduleConfig.type,
+      status: normalizeStatus(formData.status),
+      severity: formData.severity || "low",
+      recipients,
+      monitored_campaigns: normalizeCampaigns(formData.monitored_campaigns),
+      schedule: scheduleConfig.schedule,
+      last_summary: null,
+      last_signal_at: null,
+      last_run_at: null,
+      next_run_at: null,
+    });
+
+    await recordActivity({
+      agency_id: agencyId,
+      client_id: clientId,
+      report_id: report._id,
+      user_id: userId,
+      type: "report_created",
+      title: `${report.name} created`,
+      description: "Operational monitor created.",
+      severity: "stable",
+      metadata: {
+        report_type: report.type,
+        recipients,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      report,
+    });
+  } catch (err) {
+    logError(SCOPE, "CREATE_REPORT_FAILED", err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to create report",
+    });
   }
 };
 
 export const startReport = async (req, res) => {
-    try {
-        console.log("start report called !!!");
-        console.log("report starting");
-        const userId = req.user.id;
-        const { reportId } = req.body;
-        console.log(reportId);
+  try {
+    const agencyId = requireAgency(req, res);
+    if (!agencyId) return;
 
-        // validate input
-        if (!reportId) {
-            return res.status(400).json({
-                success: false,
-                message: "reportId required",
-            });
-        }
+    const userId = req.user.id;
+    const { reportId } = req.body;
 
-        // fetch report
-        const report = await Report.findOne({
-            _id: reportId,
-            user_id: userId,
-        });
-
-        // check existence FIRST
-        if (!report) {
-            return res.status(404).json({
-                success: false,
-                message: "Report not found",
-            });
-        }
-
-        // prevent duplicate activation
-        // if (report.is_active) {
-        //     return res.status(400).json({
-        //         success: false,
-        //         message: "Report already active",
-        //     });
-        // }
-
-        // activate
-        report.is_active = true;
-        report.next_run_at = getNextRun(report.frequency);
-
-        await report.save();
-
-        // trigger n8n (non-blocking safety)
-        // try {
-        //     await fetch("https://performx-v2.app.n8n.cloud/webhook-test/68991387-5464-42a6-a046-82379fb0c9c9", {
-        //         method: "POST",
-        //         headers: {
-        //             "Content-Type": "application/json",
-        //         },
-        //         body: JSON.stringify({ reportId }),
-        //     });
-        //     console.log("n8n triggered");
-
-        // } catch (err) {
-        //     console.error("n8n trigger failed:", err);
-        // }
-
-        return res.status(200).json({
-            success: true,
-            message: "Report started",
-        });
-
-    } catch (err) {
-        console.error("startReport error:", err);
-
-        return res.status(500).json({
-            success: false,
-            message: "Failed to start report",
-        });
+    if (!reportId) {
+      return res.status(400).json({
+        success: false,
+        message: "reportId required",
+      });
     }
+
+    const report = await Report.findOne({
+      _id: reportId,
+      agency_id: agencyId,
+    });
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: "Report not found",
+      });
+    }
+
+    report.status = "active";
+    report.next_run_at = getNextRunAt(report);
+    await report.save();
+
+    await recordActivity({
+      agency_id: agencyId,
+      client_id: report.client_id,
+      report_id: report._id,
+      user_id: userId,
+      type: "report_started",
+      title: `${report.name} started`,
+      description: "Operational monitor is now active.",
+      severity: "stable",
+      metadata: {
+        next_run_at: report.next_run_at,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Report started",
+      report,
+    });
+  } catch (err) {
+    logError(SCOPE, "START_REPORT_FAILED", err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to start report",
+    });
+  }
 };
 
 export const getReports = async (req, res) => {
   try {
-    const userId = req.user.id; // comes from middleware
+    const agencyId = requireAgency(req, res);
+    if (!agencyId) return;
 
-    const reports = await Report.find({ user_id: userId })
-      .sort({ createdAt: -1 });
+    const clientId = req.query.client_id || req.query.clientId;
+    const query = {
+      agency_id: agencyId,
+      ...(clientId ? { client_id: clientId } : {}),
+    };
 
-    res.json(reports);
+    const reports = await Report.find(query).sort({ createdAt: -1 });
+
+    return res.json(reports);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    logError(SCOPE, "GET_REPORTS_FAILED", err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
 
+export const getReport = async (req, res) => {
+  try {
+    const agencyId = requireAgency(req, res);
+    if (!agencyId) return;
 
+    const report = await Report.findOne({
+      _id: req.params.reportId,
+      agency_id: agencyId,
+    });
 
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: "Report not found",
+      });
+    }
 
+    return res.json({
+      success: true,
+      report,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to fetch report",
+    });
+  }
+};
+
+export const getReportHistory = async (req, res) => {
+  try {
+    const agencyId = requireAgency(req, res);
+    if (!agencyId) return;
+
+    const limit = Math.min(Number(req.query.limit) || 25, 100);
+    const report = await Report.findOne({
+      _id: req.params.reportId,
+      agency_id: agencyId,
+    }).populate("client_id", "name status");
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: "Report not found",
+      });
+    }
+
+    const [runs, signals] = await Promise.all([
+      ReportRun.find({
+        agency_id: agencyId,
+        report_id: report._id,
+      })
+        .sort({ ran_at: -1 })
+        .limit(limit)
+        .lean(),
+      Signal.find({
+        agency_id: agencyId,
+        report_id: report._id,
+      })
+        .sort({ detected_at: -1 })
+        .limit(limit)
+        .lean(),
+    ]);
+
+    return res.json({
+      success: true,
+      report,
+      runs,
+      signals,
+    });
+  } catch (err) {
+    logError(SCOPE, "GET_REPORT_HISTORY_FAILED", err, {
+      reportId: req.params?.reportId,
+    });
+
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to fetch report history",
+    });
+  }
+};
+
+export const updateReport = async (req, res) => {
+  try {
+    const agencyId = requireAgency(req, res);
+    if (!agencyId) return;
+
+    const userId = req.user.id;
+    const { reportId } = req.body;
+    const updates = req.body.updates || req.body;
+
+    if (!reportId) {
+      return res.status(400).json({
+        success: false,
+        message: "reportId required",
+      });
+    }
+
+    const report = await Report.findOne({
+      _id: reportId,
+      agency_id: agencyId,
+    });
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: "Report not found",
+      });
+    }
+
+    const wasActive = report.status === "active";
+
+    if (updates.name !== undefined) {
+      report.name = normalizeReportName(updates.name);
+    }
+
+    if (updates.recipients !== undefined || updates.email !== undefined) {
+      report.recipients = normalizeRecipients(updates.recipients, updates.email);
+    }
+
+    if (updates.monitored_campaigns !== undefined) {
+      report.monitored_campaigns = normalizeCampaigns(updates.monitored_campaigns);
+    }
+
+    if (updates.severity !== undefined) {
+      report.severity = updates.severity;
+    }
+
+    const type = updates.type || updates.frequency || report.type;
+    const currentSchedule = report.schedule?.toObject?.() || report.schedule || {};
+    const scheduleInput = {
+      type,
+      schedule: {
+        ...currentSchedule,
+        ...(updates.schedule || {}),
+      },
+    };
+    const scheduleConfig = normalizeReportSchedule(scheduleInput);
+
+    report.type = scheduleConfig.type;
+    report.schedule = scheduleConfig.schedule;
+
+    if (updates.status !== undefined || updates.is_active !== undefined) {
+      report.status = normalizeStatus(updates.status ?? updates.is_active);
+    }
+
+    if (report.status === "active") {
+      report.next_run_at = getNextRunAt(report);
+    } else {
+      report.next_run_at = null;
+    }
+
+    await report.save();
+
+    if (wasActive && report.status === "paused") {
+      await recordActivity({
+        agency_id: agencyId,
+        client_id: report.client_id,
+        report_id: report._id,
+        user_id: userId,
+        type: "report_paused",
+        title: `${report.name} paused`,
+        description: "Operational monitor was paused.",
+        severity: "stable",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Report updated",
+      report,
+    });
+  } catch (err) {
+    logError(SCOPE, "UPDATE_REPORT_FAILED", err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to update report",
+    });
+  }
+};
+
+export const deleteReport = async (req, res) => {
+  try {
+    const agencyId = requireAgency(req, res);
+    if (!agencyId) return;
+
+    const reportId = req.body?.reportId || req.params.reportId;
+
+    if (!reportId) {
+      return res.status(400).json({
+        success: false,
+        message: "reportId required",
+      });
+    }
+
+    const report = await Report.findOneAndDelete({
+      _id: reportId,
+      agency_id: agencyId,
+    });
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: "Report not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Report deleted",
+      reportId: report._id,
+    });
+  } catch (err) {
+    logError(SCOPE, "DELETE_REPORT_FAILED", err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Failed to delete report",
+    });
+  }
+};

@@ -9,10 +9,13 @@
   },
   "dependencies": {
     "auth-module": "file:../auth-module",
+    "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "mongoose": "^9.1.2"
+    "luxon": "^3.7.2",
+    "mongoose": "^9.1.2",
+    "node-cron": "^4.2.1"
   }
 }

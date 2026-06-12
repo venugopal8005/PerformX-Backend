@@ -45,6 +45,14 @@ const DEFAULT_OPTIONS = {
   timeZone: "Asia/Kolkata",
   minimumSpendForInsight: 1,
   minimumImpressionsForInsight: 100,
+  minimumClicksForRateInsight: 20,
+  minimumConversionsForConversionInsight: 3,
+  minimumDailyRowsForBaseline: 4,
+  baselineLookbackDays: 7,
+  minimumSpendForStrongDecision: 500,
+  minimumFinancialImpactAmount: 500,
+  minimumFinancialImpactPercentOfSpend: 5,
+  reportGoal: null,
 };
 
 const METRIC_DEFINITIONS = {
@@ -102,6 +110,12 @@ const METRIC_DEFINITIONS = {
     unit: "number",
     higherIsBad: false,
   },
+  roas: {
+    label: "ROAS",
+    weight: 10,
+    unit: "number",
+    higherIsBad: false,
+  },
   cpa: {
     label: "CPA",
     weight: 10,
@@ -123,6 +137,7 @@ const SNAPSHOT_METRICS = [
   "ctr",
   "cpc",
   "conversions",
+  "roas",
   "cpa",
   "frequency",
   "cpm",
@@ -380,10 +395,59 @@ function generatePerformanceNarrative(input, options = {}) {
   }
 
   const deltas = calculateDeltas(current, previous);
-  const anomalies = rankAnomalies(current, previous, deltas);
+  const dataQuality = assessDataQuality(rows, prepared, current, previous, config);
+  const baselineComparison = buildBaselineComparison(
+    prepared.dailyRows,
+    current.date,
+    current,
+    config
+  );
+  const trustLayer = assessTrustLayer(
+    rows,
+    prepared,
+    current,
+    previous,
+    deltas,
+    baselineComparison,
+    dataQuality,
+    config
+  );
+  const anomalies = rankAnomalies(current, previous, deltas, trustLayer);
   const archetype = matchBestArchetype(current, previous, deltas, anomalies);
   const fallback = buildFallbackArchetype(anomalies, deltas);
-  const selected = archetype || fallback;
+  const trustedSelection = applyTrustToSelection(archetype || fallback, trustLayer);
+  const segmentContributors = buildSegmentContributors(
+    rows,
+    current.date,
+    previous.date,
+    config
+  );
+  const adDiagnostics = buildAdDiagnostics(segmentContributors, trustedSelection, config);
+  const reportGoal = extractReportGoal(input, context, config);
+  const decisionType = buildDecisionType(trustedSelection, reportGoal);
+  const topContributor = buildTopContributor(segmentContributors, adDiagnostics, trustedSelection, config);
+  const trustGate = assessTrustGate({
+    current,
+    previous,
+    trustLayer,
+    dataQuality,
+    baselineComparison,
+    topContributor,
+    selected: trustedSelection,
+    decisionType,
+    comparisonMode: "direct_daily",
+    disclaimer: null,
+    config,
+  });
+  const selected = applyTrustGateToSelection(
+    trustedSelection,
+    trustGate,
+    decisionType,
+    topContributor
+  );
+  const finalDecisionType = trustGate.decisionTypeOverride
+    ? buildDecisionType({ id: trustGate.decisionTypeOverride }, reportGoal)
+    : decisionType;
   const financialImpact = estimateFinancialImpact(
     current,
     previous,
@@ -391,14 +455,15 @@ function generatePerformanceNarrative(input, options = {}) {
     selected,
     config
   );
-  const dataQuality = assessDataQuality(rows, prepared, current, previous, config);
-  const segmentContributors = buildSegmentContributors(
-    rows,
-    current.date,
-    previous.date,
-    config
+  const displayMetrics = buildDisplayMetrics(current, previous, deltas, config);
+  const reportGoalAssessment = buildReportGoalAssessment(reportGoal, current, previous, displayMetrics, config);
+  const followUp = buildFollowUp(
+    extractPreviousNarrative(input, context),
+    current,
+    previous,
+    deltas,
+    displayMetrics
   );
-  const adDiagnostics = buildAdDiagnostics(segmentContributors, selected, config);
 
   return {
     status: "ok",
@@ -424,6 +489,11 @@ function generatePerformanceNarrative(input, options = {}) {
       selected,
       financialImpact,
       adDiagnostics,
+      trustLayer,
+      trustGate,
+      finalDecisionType,
+      topContributor,
+      reportGoalAssessment,
       config
     ),
     campaign: {
@@ -439,9 +509,192 @@ function generatePerformanceNarrative(input, options = {}) {
       previous: previous.date,
     },
     dataQuality,
-    snapshot: buildSnapshot(current, deltas, config),
+    trustLayer,
+    trustGate,
+    baselineComparison,
+    decisionType: finalDecisionType,
+    topContributor,
+    followUp,
+    displayMetrics,
+    reportGoalAssessment,
+    snapshot: buildSnapshot(current, previous, deltas, config),
     keyDelta: buildKeyDelta(anomalies, selected),
     likelyCause: {
+      id: selected.id,
+      archetype: selected.name,
+      confidence: selected.confidence,
+      summary: selected.cause,
+      evidence: selected.evidence,
+    },
+    financialImpact,
+    decision: selected.action,
+    recommendations: buildRecommendations(selected, anomalies, deltas),
+    diagnosticChecks: buildDiagnosticChecks(selected, deltas),
+    monitoringPlan: buildMonitoringPlan(selected, anomalies),
+    guardrails: buildGuardrails(current, previous, deltas, selected, config),
+    nextSignal: selected.nextSignal,
+    severity: {
+      level: severityLevel(selected.score),
+      score: round(selected.score, 1),
+    },
+    metrics: {
+      current,
+      previous,
+      deltas,
+    },
+    rankedAnomalies: anomalies.slice(0, 5),
+    segmentContributors: segmentContributors.slice(0, 5),
+    adDiagnostics,
+  };
+}
+
+function generateOperationalInsight(input = {}, options = {}) {
+  const config = { ...DEFAULT_OPTIONS, ...options };
+  const context = input.context || {};
+  const period = input.period || {};
+  const currentPeriodLabel = formatPeriodLabel(period.current);
+  const previousPeriodLabel = formatPeriodLabel(period.previous);
+  const current = normalizeOperationalMetrics(
+    input.currentPeriodMetrics || input.current || {},
+    currentPeriodLabel === "Unknown period" ? "current" : currentPeriodLabel,
+    context,
+    config
+  );
+  const previous = normalizeOperationalMetrics(
+    input.previousPeriodMetrics || input.previous || {},
+    previousPeriodLabel === "Unknown period" ? "previous" : previousPeriodLabel,
+    context,
+    config
+  );
+  const deltas = input.deltas || calculateDeltas(current, previous);
+  const validation = validateComparableDays(current, previous, config);
+
+  if (!validation.ok) {
+    return insufficientData(validation.reason, context);
+  }
+
+  const dataQuality = buildOperationalDataQuality(input, current, previous, config);
+  const baselineComparison = buildOperationalBaselineComparison(input);
+  const prepared = {
+    inputRowCount: Array.isArray(input.rawRows) ? input.rawRows.length : 0,
+    dailyRowCount: input.periodRowCount || 2,
+  };
+  const trustLayer = assessTrustLayer(
+    input.rawRows || [],
+    prepared,
+    current,
+    previous,
+    deltas,
+    baselineComparison,
+    dataQuality,
+    config
+  );
+  const anomalies = rankAnomalies(current, previous, deltas, trustLayer);
+  const archetype = matchBestArchetype(current, previous, deltas, anomalies);
+  const fallback = buildFallbackArchetype(anomalies, deltas);
+  const trustedSelection = applyTrustToSelection(archetype || fallback, trustLayer);
+  const segmentContributors = normalizeOperationalSegmentContributors(
+    input.segmentContributors || input.segments || []
+  );
+  const adDiagnostics = buildAdDiagnostics(segmentContributors, trustedSelection, config);
+  const reportGoal = extractReportGoal(input, context, config);
+  const decisionType = buildDecisionType(trustedSelection, reportGoal);
+  const topContributor = buildTopContributor(segmentContributors, adDiagnostics, trustedSelection, config);
+  const trustGate = assessTrustGate({
+    current,
+    previous,
+    trustLayer,
+    dataQuality,
+    baselineComparison,
+    topContributor,
+    selected: trustedSelection,
+    decisionType,
+    comparisonMode: input.mode || period.source || "scheduled_window",
+    disclaimer: input.disclaimer || null,
+    config,
+  });
+  const selected = applyTrustGateToSelection(
+    trustedSelection,
+    trustGate,
+    decisionType,
+    topContributor
+  );
+  const finalDecisionType = trustGate.decisionTypeOverride
+    ? buildDecisionType({ id: trustGate.decisionTypeOverride }, reportGoal)
+    : decisionType;
+  const financialImpact = estimateFinancialImpact(
+    current,
+    previous,
+    deltas,
+    selected,
+    config
+  );
+  const displayMetrics = buildDisplayMetrics(current, previous, deltas, config);
+  const reportGoalAssessment = buildReportGoalAssessment(reportGoal, current, previous, displayMetrics, config);
+  const followUp = buildFollowUp(
+    extractPreviousNarrative(input, context),
+    current,
+    previous,
+    deltas,
+    displayMetrics
+  );
+
+  return {
+    status: "ok",
+    engineVersion: "1.1.0",
+    analysisType: input.analysisType || "period_comparison",
+    guidanceCoverage: {
+      mode: "period_agnostic_archetype_and_metric_playbooks",
+      supportedMetrics: Object.keys(METRIC_DEFINITIONS),
+    },
+    executiveSummary: buildExecutiveSummary(
+      current,
+      previous,
+      deltas,
+      selected,
+      financialImpact,
+      config
+    ),
+    userInsight: buildUserInsight(
+      current,
+      previous,
+      deltas,
+      anomalies,
+      selected,
+      financialImpact,
+      adDiagnostics,
+      trustLayer,
+      trustGate,
+      finalDecisionType,
+      topContributor,
+      reportGoalAssessment,
+      config
+    ),
+    campaign: {
+      id: context.campaignId || current.campaignId || previous.campaignId || null,
+      name:
+        context.campaignName ||
+        current.campaignName ||
+        previous.campaignName ||
+        null,
+    },
+    period: {
+      current: period.current || current.date,
+      previous: period.previous || previous.date,
+    },
+    dataQuality,
+    trustLayer,
+    trustGate,
+    baselineComparison,
+    decisionType: finalDecisionType,
+    topContributor,
+    followUp,
+    displayMetrics,
+    reportGoalAssessment,
+    snapshot: buildSnapshot(current, previous, deltas, config),
+    keyDelta: buildKeyDelta(anomalies, selected),
+    likelyCause: {
+      id: selected.id,
       archetype: selected.name,
       confidence: selected.confidence,
       summary: selected.cause,
@@ -552,6 +805,7 @@ function selectComparisonDays(rows, config) {
     ok: true,
     previousRow: dailyRows[dailyRows.length - 2],
     currentRow: dailyRows[dailyRows.length - 1],
+    dailyRows,
     dailyRowCount: dailyRows.length,
     inputRowCount: filteredRows.length,
   };
@@ -574,6 +828,8 @@ function aggregateRowsByDate(rows, config) {
         reach: 0,
         clicks: 0,
         conversions: 0,
+        roasTotal: 0,
+        roasCount: 0,
       });
     }
 
@@ -583,6 +839,10 @@ function aggregateRowsByDate(rows, config) {
     group.reach += normalized.reach;
     group.clicks += normalized.clicks;
     group.conversions += normalized.conversions;
+    if (normalized.roas > 0) {
+      group.roasTotal += normalized.roas;
+      group.roasCount += 1;
+    }
 
     if (group.campaign_id && normalized.campaignId && group.campaign_id !== normalized.campaignId) {
       group.campaign_id = null;
@@ -597,6 +857,7 @@ function aggregateRowsByDate(rows, config) {
     reach: round(row.reach, 0),
     clicks: round(row.clicks, 0),
     conversions: round(row.conversions, 2),
+    roas: round(row.roasCount ? row.roasTotal / row.roasCount : 0, 2),
     frequency: round(safeDivide(row.impressions, row.reach), 2),
     ctr: round(safeDivide(row.clicks * 100, row.impressions), 2),
     cpc: round(safeDivide(row.spend, row.clicks), 2),
@@ -617,6 +878,7 @@ function normalizeMetaDailyRow(row, config) {
   const ctr = number(row.ctr) || safeDivide(clicks * 100, impressions);
   const cpc = number(row.cpc) || safeDivide(spend, clicks);
   const conversions = extractConversions(row, config);
+  const roas = extractRoas(row);
   const cpa =
     number(row.cpa) ||
     number(row.cost_per_conversion) ||
@@ -637,6 +899,47 @@ function normalizeMetaDailyRow(row, config) {
     cpc: round(cpc, 2),
     cpm: round(cpm, 2),
     conversions: round(conversions, 2),
+    roas: round(roas, 2),
+    cpa: round(cpa, 2),
+    conversionRate: round(conversionRate, 2),
+  };
+}
+
+function normalizeOperationalMetrics(metrics, date, context, config) {
+  const spend = number(metrics.spend);
+  const impressions = number(metrics.impressions);
+  const clicks = number(metrics.clicks);
+  const reach = number(metrics.reach);
+  const conversions = number(metrics.conversions);
+  const frequency =
+    number(metrics.frequency) || safeDivide(impressions, reach) || number(metrics.freq);
+  const ctr = number(metrics.ctr) || safeDivide(clicks * 100, impressions);
+  const cpc = number(metrics.cpc) || safeDivide(spend, clicks);
+  const cpm = number(metrics.cpm) || safeDivide(spend * 1000, impressions);
+  const cpa =
+    number(metrics.cpa) ||
+    number(metrics.cost_per_conversion) ||
+    safeDivide(spend, conversions);
+  const conversionRate =
+    number(metrics.conversionRate) ||
+    number(metrics.conversion_rate) ||
+    safeDivide(conversions * 100, clicks);
+
+  return {
+    date,
+    campaignId: metrics.campaignId || metrics.campaign_id || context.campaignId || null,
+    campaignName:
+      metrics.campaignName || metrics.campaign_name || context.campaignName || null,
+    spend: round(spend, 2),
+    impressions: round(impressions, 0),
+    reach: round(reach, 0),
+    frequency: round(frequency, 2),
+    clicks: round(clicks, 0),
+    ctr: round(ctr, 2),
+    cpc: round(cpc, 2),
+    cpm: round(cpm, 2),
+    conversions: round(conversions, 2),
+    roas: round(number(metrics.roas) || number(metrics.purchase_roas), 2),
     cpa: round(cpa, 2),
     conversionRate: round(conversionRate, 2),
   };
@@ -652,6 +955,28 @@ function extractConversions(row, config) {
   if (direct) return direct;
 
   return sumActionValues(row.actions, config.conversionActionTypes);
+}
+
+function extractRoas(row) {
+  const direct = number(row.roas);
+  if (direct) return direct;
+
+  if (typeof row.purchase_roas === "number" || typeof row.purchase_roas === "string") {
+    return number(row.purchase_roas);
+  }
+
+  if (Array.isArray(row.purchase_roas)) {
+    const purchaseRoas =
+      row.purchase_roas.find((item) =>
+        ["omni_purchase", "purchase", "offsite_conversion.fb_pixel_purchase"].includes(
+          item?.action_type
+        )
+      ) || row.purchase_roas[0];
+
+    return number(purchaseRoas?.value);
+  }
+
+  return 0;
 }
 
 function extractCostPerAction(row, config) {
@@ -707,7 +1032,9 @@ function calculateDeltas(current, previous) {
   }, {});
 }
 
-function rankAnomalies(current, previous, deltas) {
+function rankAnomalies(current, previous, deltas, trustLayer = null) {
+  const metricReliability = trustLayer?.metricReliability || {};
+
   return Object.entries(METRIC_DEFINITIONS)
     .map(([metric, definition]) => {
       const delta = deltas[metric];
@@ -715,7 +1042,17 @@ function rankAnomalies(current, previous, deltas) {
       const magnitude = Math.min(Math.abs(delta), 150);
       const directionMultiplier =
         direction === "bad" ? 1.3 : direction === "good" ? 0.65 : 0.9;
-      const score = (magnitude / 10) * definition.weight * directionMultiplier;
+      const reliability = metricReliability[metric] || {
+        level: "medium",
+        usable: true,
+        scoreMultiplier: 0.8,
+        reasons: [],
+      };
+      const score =
+        (magnitude / 10) *
+        definition.weight *
+        directionMultiplier *
+        reliability.scoreMultiplier;
 
       return {
         metric,
@@ -724,10 +1061,13 @@ function rankAnomalies(current, previous, deltas) {
         previous: previous[metric],
         delta: round(delta, 1),
         direction,
+        reliability: reliability.level,
+        reliabilityReasons: reliability.reasons,
+        usable: reliability.usable,
         score: round(score, 1),
       };
     })
-    .filter((item) => Number.isFinite(item.delta) && Math.abs(item.delta) >= 5)
+    .filter((item) => item.usable && Number.isFinite(item.delta) && Math.abs(item.delta) >= 5)
     .sort((a, b) => b.score - a.score);
 }
 
@@ -866,11 +1206,16 @@ function buildEvidence(archetype, current, previous, deltas) {
     });
 }
 
-function buildSnapshot(current, deltas, config) {
+function buildSnapshot(current, previous, deltas, config) {
   return SNAPSHOT_METRICS.reduce((acc, metric) => {
-    acc[metric] = `${formatMetric(current[metric], metric, config)} (${formatSignedPercent(
-      deltas[metric]
-    )})`;
+    const display = buildDisplayMetrics(current, previous, deltas, config)[metric];
+    acc[metric] = display.available
+      ? `${display.value}${display.delta ? ` (${display.delta})` : ""}`
+      : {
+          value: "N/A",
+          available: false,
+          reason: display.reason,
+        };
     return acc;
   }, {});
 }
@@ -890,9 +1235,52 @@ function buildKeyDelta(anomalies, selected) {
 
 function estimateFinancialImpact(current, previous, deltas, selected, config) {
   const symbol = config.currencySymbol;
+  const totalSpend = current.spend + previous.spend;
+  const noConversions = current.conversions === 0 && previous.conversions === 0;
+  const caveats = [];
+
+  const finishImpact = (impact) => {
+    const amount = Number(impact.amount || 0);
+    const percentOfSpend = totalSpend > 0 ? (amount / totalSpend) * 100 : 0;
+    const shouldDisplayAmount =
+      amount >= config.minimumFinancialImpactAmount ||
+      percentOfSpend >= config.minimumFinancialImpactPercentOfSpend;
+    const displayAmount = shouldDisplayAmount
+      ? `${symbol}${formatNumber(amount)}`
+      : "N/A";
+    const summary = shouldDisplayAmount
+      ? impact.summary
+      : impact.type === "unavailable"
+        ? impact.summary
+        : impact.type === "positive"
+          ? "Opportunity detected, but monetary impact is not large enough to quantify reliably yet."
+          : "Efficiency risk detected, but monetary impact is limited from available data.";
+
+    return {
+      ...impact,
+      amount: round(amount, 2),
+      displayAmount,
+      shouldDisplayAmount,
+      percentOfSpend: round(percentOfSpend, 1),
+      summary,
+      caveats: uniqueList([...(impact.caveats || []), ...caveats]),
+    };
+  };
+
+  if (noConversions) {
+    return finishImpact({
+      type: "unavailable",
+      amount: 0,
+      currency: config.currency,
+      summary: "Conversion impact cannot be confirmed because no conversions were recorded.",
+      method: "No estimate because conversion denominators were unavailable.",
+      caveats: ["No conversions were recorded in either compared period."],
+    });
+  }
+
   const conversionLoss = previous.conversions - current.conversions;
   const lostConversionValue =
-    conversionLoss > 0 && previous.cpa > 0 ? conversionLoss * previous.cpa : 0;
+    !noConversions && conversionLoss > 0 && previous.cpa > 0 ? conversionLoss * previous.cpa : 0;
   const extraCpaCost =
     current.cpa > previous.cpa && current.conversions > 0
       ? (current.cpa - previous.cpa) * current.conversions
@@ -914,7 +1302,7 @@ function estimateFinancialImpact(current, previous, deltas, selected, config) {
         : 0;
     const gain = Math.max(savedCpaCost, gainedConversionValue);
 
-    return {
+    return finishImpact({
       type: "positive",
       amount: round(gain, 2),
       currency: config.currency,
@@ -926,11 +1314,11 @@ function estimateFinancialImpact(current, previous, deltas, selected, config) {
         gain > 0
           ? "max(CPA savings on current conversions, value of incremental conversions at previous CPA)"
           : "No reliable monetary estimate from available conversion and cost data.",
-    };
+    });
   }
 
   if (estimatedLoss > 0) {
-    return {
+    return finishImpact({
       type: "negative",
       amount: round(estimatedLoss, 2),
       currency: config.currency,
@@ -939,11 +1327,11 @@ function estimateFinancialImpact(current, previous, deltas, selected, config) {
       )} from reduced conversion output or higher traffic cost.`,
       method:
         "max(lost conversions at previous CPA, extra CPA cost on current conversions, extra CPC cost on current clicks)",
-    };
+    });
   }
 
   const spendDelta = current.spend - previous.spend;
-  return {
+  return finishImpact({
     type: spendDelta > 0 && (deltas.ctr < 0 || deltas.cpc > 0) ? "negative" : "neutral",
     amount: round(Math.abs(spendDelta), 2),
     currency: config.currency,
@@ -953,6 +1341,894 @@ function estimateFinancialImpact(current, previous, deltas, selected, config) {
         : "No material financial impact can be estimated from the available data.",
     method:
       "Spend delta fallback because conversion and unit-cost impact were not reliable enough.",
+  });
+}
+
+function buildBaselineComparison(dailyRows, currentDate, current, config) {
+  const rows = Array.isArray(dailyRows)
+    ? dailyRows
+        .filter((row) => {
+          const date = row.date_start || row.date || row.dateStop;
+          return date && currentDate && date < currentDate;
+        })
+        .slice(-config.baselineLookbackDays)
+    : [];
+  const normalizedRows = rows.map((row) => normalizeMetaDailyRow(row, config));
+  const baseline = buildBaselineMetrics(normalizedRows);
+  const deltas = baseline
+    ? Object.keys(METRIC_DEFINITIONS).reduce((acc, metric) => {
+        acc[metric] = percentChange(current[metric], baseline[metric]);
+        return acc;
+      }, {})
+    : {};
+  const findings = baseline
+    ? Object.entries(METRIC_DEFINITIONS)
+        .map(([metric, definition]) => ({
+          metric,
+          label: definition.label,
+          current: current[metric],
+          baseline: baseline[metric],
+          delta: round(deltas[metric], 1),
+          direction: classifyDirection(metric, deltas[metric], deltas),
+        }))
+        .filter((item) => Number.isFinite(item.delta) && Math.abs(item.delta) >= 5)
+        .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+        .slice(0, 5)
+    : [];
+  const available = rows.length >= config.minimumDailyRowsForBaseline && Boolean(baseline);
+
+  return {
+    available,
+    level: available ? "strong" : rows.length >= 2 ? "limited" : "missing",
+    comparedDays: rows.length,
+    requiredDays: config.minimumDailyRowsForBaseline,
+    lookbackDays: config.baselineLookbackDays,
+    baseline,
+    deltas,
+    findings,
+    summary: available
+      ? `Compared against a ${rows.length}-day baseline before ${currentDate}.`
+      : rows.length
+        ? `Only ${rows.length} baseline day${rows.length === 1 ? "" : "s"} available; use trend claims carefully.`
+        : "No historical baseline is available before the current comparison day.",
+  };
+}
+
+function buildBaselineMetrics(rows) {
+  if (!rows.length) return null;
+
+  const totals = rows.reduce(
+    (acc, row) => {
+      acc.spend += row.spend;
+      acc.impressions += row.impressions;
+      acc.reach += row.reach;
+      acc.clicks += row.clicks;
+      acc.conversions += row.conversions;
+      return acc;
+    },
+    {
+      spend: 0,
+      impressions: 0,
+      reach: 0,
+      clicks: 0,
+      conversions: 0,
+      roasTotal: 0,
+      roasCount: 0,
+    }
+  );
+  for (const row of rows) {
+    if (row.roas > 0) {
+      totals.roasTotal += row.roas;
+      totals.roasCount += 1;
+    }
+  }
+  const days = rows.length;
+
+  return {
+    spend: round(totals.spend / days, 2),
+    impressions: round(totals.impressions / days, 0),
+    reach: round(totals.reach / days, 0),
+    clicks: round(totals.clicks / days, 0),
+    conversions: round(totals.conversions / days, 2),
+    roas: round(totals.roasCount ? totals.roasTotal / totals.roasCount : 0, 2),
+    frequency: round(safeDivide(totals.impressions, totals.reach), 2),
+    ctr: round(safeDivide(totals.clicks * 100, totals.impressions), 2),
+    cpc: round(safeDivide(totals.spend, totals.clicks), 2),
+    cpm: round(safeDivide(totals.spend * 1000, totals.impressions), 2),
+    cpa: round(safeDivide(totals.spend, totals.conversions), 2),
+    conversionRate: round(safeDivide(totals.conversions * 100, totals.clicks), 2),
+  };
+}
+
+function assessTrustLayer(
+  rows,
+  prepared,
+  current,
+  previous,
+  deltas,
+  baselineComparison,
+  dataQuality,
+  config
+) {
+  const metricReliability = buildMetricReliability(current, previous, config);
+  const minimumThresholds = buildMinimumThresholds(current, previous, config);
+  const reasons = [];
+  const warnings = [];
+  const reliabilityFilters = Object.entries(metricReliability)
+    .filter(([, value]) => !value.usable || value.level === "low")
+    .map(([metric, value]) => ({
+      metric,
+      label: METRIC_DEFINITIONS[metric]?.label || metric,
+      level: value.level,
+      usable: value.usable,
+      reasons: value.reasons,
+    }));
+  const topDelta = Object.values(deltas).reduce(
+    (max, value) => Math.max(max, Math.abs(Number(value) || 0)),
+    0
+  );
+  let score = 100;
+
+  if (dataQuality.level === "limited") {
+    score -= 22;
+    warnings.push("Data quality is limited.");
+  } else if (dataQuality.level === "usable") {
+    score -= 10;
+    warnings.push("Data quality is usable but not perfect.");
+  }
+
+  if (!baselineComparison.available) {
+    score -= baselineComparison.level === "limited" ? 10 : 18;
+    warnings.push(baselineComparison.summary);
+  } else {
+    reasons.push(baselineComparison.summary);
+  }
+
+  if (!minimumThresholds.spend.passed) score -= 18;
+  if (!minimumThresholds.impressions.passed) score -= 18;
+  if (!minimumThresholds.clicks.passed) score -= 8;
+  if (!minimumThresholds.conversions.passed) score -= 10;
+
+  score -= Math.min(reliabilityFilters.length * 3, 18);
+
+  if (topDelta >= 30) {
+    score += 5;
+    reasons.push("The movement is large enough to treat as a meaningful signal.");
+  } else if (topDelta < 10) {
+    score -= 8;
+    warnings.push("The detected movement is small, so the recommendation should be treated as lighter guidance.");
+  }
+
+  const boundedScore = Math.max(0, Math.min(100, round(score, 0)));
+  const level = boundedScore >= 80 ? "high" : boundedScore >= 55 ? "medium" : "low";
+
+  if (level === "high") {
+    reasons.unshift("The recommendation is supported by enough delivery volume and usable metric data.");
+  } else if (level === "medium") {
+    reasons.unshift("The recommendation is usable, but should be checked against the listed caveats.");
+  } else {
+    reasons.unshift("Treat this as a cautionary signal, not a final optimization decision.");
+  }
+
+  return {
+    level,
+    score: boundedScore,
+    reasons,
+    warnings,
+    minimumThresholds,
+    metricReliability,
+    reliabilityFilters,
+    baseline: {
+      level: baselineComparison.level,
+      available: baselineComparison.available,
+      comparedDays: baselineComparison.comparedDays,
+      requiredDays: baselineComparison.requiredDays,
+      summary: baselineComparison.summary,
+    },
+    rowCoverage: {
+      inputRows: Array.isArray(rows) ? rows.length : 0,
+      filteredRows: prepared.inputRowCount,
+      aggregatedDailyRows: prepared.dailyRowCount,
+    },
+  };
+}
+
+function buildMinimumThresholds(current, previous, config) {
+  const spend = current.spend + previous.spend;
+  const impressions = current.impressions + previous.impressions;
+  const clicks = current.clicks + previous.clicks;
+  const conversions = current.conversions + previous.conversions;
+
+  return {
+    spend: {
+      passed: current.spend >= config.minimumSpendForInsight || previous.spend >= config.minimumSpendForInsight,
+      current: current.spend,
+      previous: previous.spend,
+      required: config.minimumSpendForInsight,
+    },
+    impressions: {
+      passed:
+        current.impressions >= config.minimumImpressionsForInsight ||
+        previous.impressions >= config.minimumImpressionsForInsight,
+      current: current.impressions,
+      previous: previous.impressions,
+      required: config.minimumImpressionsForInsight,
+    },
+    clicks: {
+      passed: clicks >= config.minimumClicksForRateInsight,
+      total: clicks,
+      required: config.minimumClicksForRateInsight,
+    },
+    conversions: {
+      passed: conversions >= config.minimumConversionsForConversionInsight,
+      total: conversions,
+      required: config.minimumConversionsForConversionInsight,
+    },
+    totalSpend: round(spend, 2),
+    totalImpressions: impressions,
+  };
+}
+
+function buildMetricReliability(current, previous, config) {
+  return Object.keys(METRIC_DEFINITIONS).reduce((acc, metric) => {
+    acc[metric] = metricReliability(metric, current, previous, config);
+    return acc;
+  }, {});
+}
+
+function metricReliability(metric, current, previous, config) {
+  const reasons = [];
+  const clicks = current.clicks + previous.clicks;
+  const impressions = current.impressions + previous.impressions;
+  const conversions = current.conversions + previous.conversions;
+  const spend = current.spend + previous.spend;
+  let level = "high";
+  let usable = true;
+  let scoreMultiplier = 1;
+
+  if (current[metric] === 0 && previous[metric] === 0) {
+    usable = false;
+    level = "unusable";
+    scoreMultiplier = 0;
+    reasons.push("No usable value was present for this metric in either compared period.");
+  }
+
+  if (["ctr", "cpc", "clicks"].includes(metric) && clicks < config.minimumClicksForRateInsight) {
+    level = downgradeReliability(level);
+    scoreMultiplier = Math.min(scoreMultiplier, 0.55);
+    reasons.push(`Click volume is below ${config.minimumClicksForRateInsight}, so traffic-rate signals are weaker.`);
+  }
+
+  if (metric === "cpc" && (current.clicks === 0 || previous.clicks === 0)) {
+    usable = false;
+    level = "unusable";
+    scoreMultiplier = 0;
+    reasons.push("CPC cannot be compared reliably because one period had zero clicks.");
+  }
+
+  if (metric === "ctr" && (current.impressions === 0 || previous.impressions === 0)) {
+    usable = false;
+    level = "unusable";
+    scoreMultiplier = 0;
+    reasons.push("CTR cannot be compared reliably because one period had zero impressions.");
+  }
+
+  if (["cpm", "ctr", "impressions", "reach", "frequency"].includes(metric) && impressions < config.minimumImpressionsForInsight * 2) {
+    level = downgradeReliability(level);
+    scoreMultiplier = Math.min(scoreMultiplier, 0.65);
+    reasons.push(`Impression volume is below ${config.minimumImpressionsForInsight * 2}, so delivery signals are weaker.`);
+  }
+
+  if (metric === "cpm" && (current.impressions === 0 || previous.impressions === 0)) {
+    usable = false;
+    level = "unusable";
+    scoreMultiplier = 0;
+    reasons.push("CPM cannot be compared reliably because one period had zero impressions.");
+  }
+
+  if (metric === "frequency" && (current.reach === 0 || previous.reach === 0)) {
+    usable = false;
+    level = "unusable";
+    scoreMultiplier = 0;
+    reasons.push("Frequency cannot be compared reliably because one period had zero reach.");
+  }
+
+  if (["conversions", "cpa", "conversionRate", "roas"].includes(metric) && conversions < config.minimumConversionsForConversionInsight) {
+    level = downgradeReliability(level);
+    scoreMultiplier = Math.min(scoreMultiplier, 0.45);
+    reasons.push(`Conversion volume is below ${config.minimumConversionsForConversionInsight}, so conversion signals are weaker.`);
+  }
+
+  if (metric === "roas" && current.roas === 0 && previous.roas === 0) {
+    usable = false;
+    level = "unusable";
+    scoreMultiplier = 0;
+    reasons.push("ROAS cannot be compared because purchase value or ROAS data was not available.");
+  }
+
+  if (metric === "cpa" && (current.conversions === 0 || previous.conversions === 0)) {
+    usable = false;
+    level = "unusable";
+    scoreMultiplier = 0;
+    reasons.push("CPA cannot be compared reliably because one period had zero conversions.");
+  }
+
+  if (metric === "conversionRate" && (current.clicks === 0 || previous.clicks === 0)) {
+    usable = false;
+    level = "unusable";
+    scoreMultiplier = 0;
+    reasons.push("Conversion rate cannot be compared reliably because one period had zero clicks.");
+  }
+
+  if (["spend", "cpc", "cpm", "cpa"].includes(metric) && spend < config.minimumSpendForInsight * 2) {
+    level = downgradeReliability(level);
+    scoreMultiplier = Math.min(scoreMultiplier, 0.65);
+    reasons.push(`Spend is below ${config.minimumSpendForInsight * 2}, so cost signals are weaker.`);
+  }
+
+  if (level === "high" && reasons.length) level = "medium";
+  if (level === "unusable") usable = false;
+
+  return {
+    level,
+    usable,
+    scoreMultiplier,
+    reasons,
+  };
+}
+
+function downgradeReliability(level) {
+  if (level === "unusable") return "unusable";
+  if (level === "low") return "low";
+  if (level === "medium") return "low";
+  return "medium";
+}
+
+function applyTrustToSelection(selected, trustLayer) {
+  const confidenceCap =
+    trustLayer.level === "high" ? 24 : trustLayer.level === "medium" ? 16 : 8;
+  const confidenceScore = Math.min(selected.confidence.score, confidenceCap);
+  const confidence =
+    confidenceScore >= 20
+      ? { level: "High", score: confidenceScore }
+      : confidenceScore >= 12
+        ? { level: "Medium", score: confidenceScore }
+        : { level: "Low", score: confidenceScore };
+  const scoreMultiplier =
+    trustLayer.level === "high" ? 1 : trustLayer.level === "medium" ? 0.9 : 0.72;
+
+  return {
+    ...selected,
+    confidence,
+    originalConfidence: selected.confidence,
+    score: round(selected.score * scoreMultiplier, 1),
+    trustLevel: trustLayer.level,
+  };
+}
+
+function formatPeriodLabel(periodValue) {
+  if (periodValue === null || periodValue === undefined || periodValue === "") {
+    return "Unknown period";
+  }
+
+  if (typeof periodValue === "string" || typeof periodValue === "number") {
+    return String(periodValue);
+  }
+
+  if (periodValue instanceof Date) {
+    return periodValue.toISOString().slice(0, 10);
+  }
+
+  if (typeof periodValue === "object") {
+    if (periodValue.label) return String(periodValue.label);
+
+    const start = periodValue.start || periodValue.date_start || periodValue.dateStart;
+    const end = periodValue.end || periodValue.date_stop || periodValue.dateStop;
+
+    if (start && end && start !== end) return `${start} to ${end}`;
+    if (start || end) return String(start || end);
+  }
+
+  return "Unknown period";
+}
+
+function extractReportGoal(input, context, config) {
+  const reportGoal =
+    input?.reportGoal ||
+    input?.context?.reportGoal ||
+    context?.reportGoal ||
+    config.reportGoal ||
+    null;
+
+  if (!reportGoal || typeof reportGoal !== "object") return null;
+
+  return {
+    objective: reportGoal.objective || null,
+    primaryKpi: reportGoal.primaryKpi || reportGoal.primary_kpi || null,
+    targetValue:
+      reportGoal.targetValue === null || reportGoal.targetValue === undefined
+        ? null
+        : number(reportGoal.targetValue),
+    targetDirection: reportGoal.targetDirection || reportGoal.target_direction || null,
+    currency: reportGoal.currency || config.currency,
+  };
+}
+
+function extractPreviousNarrative(input, context) {
+  return input?.previousNarrative || input?.context?.previousNarrative || context?.previousNarrative || null;
+}
+
+function buildDecisionType(selected, reportGoal = null) {
+  const directMap = {
+    creative_fatigue: "creative_action",
+    engagement_quality_drop: "creative_action",
+    audience_saturation: "audience_action",
+    aggressive_scaling: "budget_action",
+    conversion_funnel_breakdown: "funnel_or_tracking_action",
+    auction_pressure: "budget_action",
+    delivery_instability: "delivery_issue",
+    volume_loss: "delivery_issue",
+    healthy_scaling: "opportunity",
+    stable_performance: "monitor_only",
+    data_issue: "data_issue",
+  };
+  let id = directMap[selected.id] || null;
+
+  if (!id && selected.id === "traffic_quality_drop") {
+    const objective = String(reportGoal?.objective || "").toLowerCase();
+    id = ["leads", "purchases"].includes(objective)
+      ? "funnel_or_tracking_action"
+      : "audience_action";
+  }
+
+  if (!id && selected.positive) id = "opportunity";
+  if (!id && selected.metric) {
+    if (["ctr", "cpc"].includes(selected.metric)) id = "creative_action";
+    else if (["cpa", "conversionRate", "conversions", "roas"].includes(selected.metric)) {
+      id = "funnel_or_tracking_action";
+    } else if (["impressions", "reach", "frequency", "cpm"].includes(selected.metric)) {
+      id = "delivery_issue";
+    } else id = "monitor_only";
+  }
+  if (!id) id = "monitor_only";
+
+  const definitions = {
+    creative_action: {
+      label: "Creative Action",
+      description: "The recommendation is to improve ad message or creative before changing budget.",
+    },
+    audience_action: {
+      label: "Audience Action",
+      description: "The recommendation is to review audience freshness, overlap, or targeting quality.",
+    },
+    budget_action: {
+      label: "Budget Action",
+      description: "The recommendation is to control budget pressure until efficiency stabilizes.",
+    },
+    funnel_or_tracking_action: {
+      label: "Funnel or Tracking Action",
+      description: "The recommendation is to verify post-click performance, offer, landing page, or tracking.",
+    },
+    delivery_issue: {
+      label: "Delivery Issue",
+      description: "The recommendation is to verify delivery, pacing, bids, approvals, or account constraints.",
+    },
+    monitor_only: {
+      label: "Monitor Only",
+      description: "The data does not support a strong optimization change yet.",
+    },
+    opportunity: {
+      label: "Opportunity",
+      description: "Performance improved enough to protect or scale carefully.",
+    },
+    data_issue: {
+      label: "Data Issue",
+      description: "The data is not reliable enough for campaign optimization decisions.",
+    },
+  };
+
+  return {
+    id,
+    ...definitions[id],
+  };
+}
+
+function assessTrustGate({
+  current,
+  previous,
+  trustLayer,
+  dataQuality,
+  baselineComparison,
+  topContributor,
+  selected,
+  decisionType,
+  comparisonMode,
+  disclaimer,
+  config,
+}) {
+  const totalSpend = current.spend + previous.spend;
+  const totalClicks = current.clicks + previous.clicks;
+  const totalConversions = current.conversions + previous.conversions;
+  const reasons = [];
+  const caveats = [];
+  const flags = {
+    dataWindowMismatch:
+      comparisonMode === "historical_fallback" ||
+      Boolean(disclaimer) ||
+      dataQuality?.warnings?.some((warning) =>
+        /scheduled|fallback|window|latest available|stale/i.test(String(warning))
+      ),
+    lowSpend: totalSpend < config.minimumSpendForStrongDecision,
+    lowClicks: totalClicks < config.minimumClicksForRateInsight,
+    noConversions: totalConversions === 0,
+    noBaseline: !baselineComparison?.available,
+    noAdLevelData: !topContributor?.available,
+  };
+  let level = trustLayer?.level || "medium";
+  let actionability = userUrgency(selected.score, selected.positive);
+  let blocked = false;
+  let primaryActionOverride = null;
+  let severityCap = null;
+  let decisionTypeOverride = null;
+
+  if (flags.dataWindowMismatch) {
+    blocked = true;
+    level = "low";
+    actionability = "fix_data";
+    severityCap = "medium";
+    decisionTypeOverride = "data_issue";
+    reasons.push("Data window mismatch: the scheduled report window did not contain usable delivery.");
+    caveats.push("Latest available data may be stale relative to the scheduled report window.");
+    primaryActionOverride = "Fix the Meta delivery date window, verify delivery, and rerun the report before optimizing campaigns.";
+  }
+
+  if (flags.lowSpend) {
+    level = downgradeTrustGateLevel(level);
+    if (!blocked) actionability = "monitor";
+    severityCap = severityCap || "medium";
+    reasons.push(`Spend is below ${config.currencySymbol}${formatNumber(config.minimumSpendForStrongDecision)}, so optimization confidence is limited.`);
+    caveats.push("Spend is too low for a strong campaign-change recommendation.");
+    primaryActionOverride = primaryActionOverride || "Monitor only until spend is high enough to support a reliable decision.";
+  }
+
+  if (flags.lowClicks) {
+    level = downgradeTrustGateLevel(level);
+    if (!blocked && ["creative_action", "audience_action", "budget_action"].includes(decisionType.id)) {
+      actionability = "monitor";
+    }
+    reasons.push(`Click volume is below ${config.minimumClicksForRateInsight}, so CTR/CPC claims are weaker.`);
+    caveats.push("CTR and CPC movement may be noisy because click volume is low.");
+  }
+
+  if (flags.noConversions) {
+    if (["funnel_or_tracking_action", "budget_action"].includes(decisionType.id)) {
+      level = downgradeTrustGateLevel(level);
+    }
+    reasons.push("No conversions were recorded in either period.");
+    caveats.push("CPA, ROAS, and conversion impact cannot be confirmed from this report.");
+  }
+
+  if (flags.noBaseline) {
+    if (level === "high") level = "medium";
+    caveats.push("Historical baseline is missing or limited, so trend language should be treated as an early signal.");
+  }
+
+  if (flags.noAdLevelData && ["creative_action", "audience_action"].includes(decisionType.id)) {
+    if (!blocked) actionability = actionability === "act_today" ? "review_today" : actionability;
+    caveats.push("Ad-level data was not included, so the engine cannot identify a specific ad to pause or edit.");
+    primaryActionOverride =
+      primaryActionOverride ||
+      "Break the campaign down by ad before making creative or audience changes.";
+  }
+
+  if (selected.positive && level === "low") {
+    actionability = "monitor";
+    caveats.push("Opportunity language is capped because reliability is low.");
+  }
+
+  return {
+    level,
+    actionability,
+    blocked,
+    reasons: uniqueList(reasons),
+    caveats: uniqueList(caveats).slice(0, 5),
+    flags,
+    severityCap,
+    decisionTypeOverride,
+    primaryActionOverride,
+  };
+}
+
+function downgradeTrustGateLevel(level) {
+  if (level === "high") return "medium";
+  return "low";
+}
+
+function applyTrustGateToSelection(selected, trustGate, decisionType, topContributor) {
+  if (!trustGate) return selected;
+
+  if (trustGate.decisionTypeOverride === "data_issue") {
+    return {
+      ...selected,
+      id: "data_issue",
+      name: "Data Window Mismatch",
+      positive: false,
+      confidence: { level: "Low", score: Math.min(selected.confidence?.score || 8, 8) },
+      score: Math.min(selected.score || 20, 35),
+      cause:
+        "The scheduled report window did not contain usable delivery, so campaign optimization advice would be unreliable.",
+      action: trustGate.primaryActionOverride,
+      nextSignal: "The next report should show delivery in the expected scheduled period.",
+      playbook: {
+        decision: "fix_data_window",
+        label: "Fix data window before optimizing",
+        timeframe: "Before campaign changes",
+        primaryAction: trustGate.primaryActionOverride,
+        secondaryAction: "Check Meta date ranges, account delivery, permissions, and selected campaigns.",
+        doNotDo: "Do not make campaign optimization decisions from stale or mismatched data.",
+        plainReason: "The report used data outside the expected delivery window.",
+        expectedResult: "The report uses the scheduled period with real delivery.",
+        ifNoImprovement: "If the scheduled period still has no delivery, inspect campaign status, spend limits, and Meta permissions.",
+        owner: "Developer or account owner",
+        checklist: [
+          "Verify the scheduled current and previous date windows.",
+          "Confirm Meta returned delivery for those windows.",
+          "Rerun the report after fixing the date window.",
+        ],
+      },
+    };
+  }
+
+  if (trustGate.flags?.lowSpend) {
+    return {
+      ...selected,
+      id: selected.id === "healthy_scaling" ? "stable_performance" : selected.id,
+      name: selected.positive ? "Early Opportunity Signal" : selected.name,
+      confidence: {
+        level: selected.confidence?.level === "High" ? "Medium" : selected.confidence?.level || "Low",
+        score: Math.min(selected.confidence?.score || 8, 12),
+      },
+      score: Math.min(selected.score || 30, selected.positive ? 35 : 45),
+      action: trustGate.primaryActionOverride || selected.action,
+      cause: `${selected.cause} Spend is still below the strong-decision threshold, so this should be treated as a monitor-only signal.`,
+    };
+  }
+
+  if (trustGate.flags?.noAdLevelData && ["creative_action", "audience_action"].includes(decisionType.id)) {
+    return {
+      ...selected,
+      action: trustGate.primaryActionOverride || selected.action,
+      cause: `${selected.cause} Ad-level data was not included, so the exact responsible ad cannot be identified yet.`,
+      nextSignal: topContributor?.recommendedAction || selected.nextSignal,
+    };
+  }
+
+  return selected;
+}
+
+function buildTopContributor(segments, adDiagnostics, selected, config) {
+  const candidate =
+    adDiagnostics.fixFirst ||
+    (selected.positive ? adDiagnostics.protect : null) ||
+    adDiagnostics.all?.[0] ||
+    null;
+  const hasRealAd = candidate?.adName && candidate.adName !== "Unknown ad";
+
+  if (!candidate || !hasRealAd) {
+    return {
+      available: false,
+      level: null,
+      name: null,
+      contributionSummary:
+        "Ad-level data was not included, so the engine can only diagnose campaign-level movement.",
+      recommendedAction: "Break this campaign down by ad before making creative changes.",
+      evidence: [],
+    };
+  }
+
+  const level = candidate.adName ? "ad" : candidate.adsetName ? "adset" : "campaign";
+  const name = candidate.adName || candidate.adsetName || candidate.campaignName;
+  const evidence = (candidate.reasons || []).slice(0, 4);
+
+  return {
+    available: true,
+    level,
+    name,
+    contributionSummary:
+      evidence[0] || `${name} had the largest measurable contribution in the latest comparison.`,
+    recommendedAction: candidate.action || actionForUnderperformingAd(selected),
+    evidence,
+    metrics: {
+      current: candidate.current || {},
+      previous: candidate.previous || {},
+      deltas: candidate.deltas || {},
+    },
+  };
+}
+
+function isMetricAvailable(metric, current, previous = null) {
+  const context = current || {};
+  const compare = previous || {};
+
+  if (metric === "cpa") {
+    return context.conversions > 0 && Number.isFinite(context.cpa) && context.cpa > 0;
+  }
+  if (metric === "roas") {
+    return Number.isFinite(context.roas) && context.roas > 0;
+  }
+  if (metric === "conversionRate") {
+    return context.clicks > 0 && context.conversions > 0 && Number.isFinite(context.conversionRate);
+  }
+  if (metric === "cpc") {
+    return context.clicks > 0 && Number.isFinite(context.cpc) && context.cpc > 0;
+  }
+  if (metric === "ctr") {
+    return context.impressions > 0 && Number.isFinite(context.ctr);
+  }
+  if (metric === "cpm") {
+    return context.impressions > 0 && Number.isFinite(context.cpm) && context.cpm > 0;
+  }
+  if (metric === "frequency") {
+    return context.reach > 0 && context.impressions > 0 && Number.isFinite(context.frequency);
+  }
+  if (metric === "conversions") {
+    return Number.isFinite(context.conversions);
+  }
+
+  return Number.isFinite(context[metric]) || Number.isFinite(compare[metric]);
+}
+
+function unavailableMetricReason(metric, context = {}) {
+  if (metric === "cpa") return "No conversions recorded.";
+  if (metric === "roas") return "No purchase value or ROAS was available.";
+  if (metric === "conversionRate") {
+    if (context.clicks === 0) return "No clicks recorded.";
+    return "No conversions recorded.";
+  }
+  if (metric === "cpc") return "No clicks recorded.";
+  if (metric === "ctr" || metric === "cpm") return "No impressions recorded.";
+  if (metric === "frequency") return "Reach was unavailable or zero.";
+  return "Metric was unavailable.";
+}
+
+function formatMetricSafe(value, metric, context, config) {
+  if (!isMetricAvailable(metric, context)) {
+    return {
+      value: "N/A",
+      available: false,
+      reason: unavailableMetricReason(metric, context),
+    };
+  }
+
+  return {
+    value: formatMetric(value, metric, config),
+    available: true,
+    reason: null,
+  };
+}
+
+function buildDisplayMetrics(current, previous, deltas, config) {
+  return Object.keys(METRIC_DEFINITIONS).reduce((acc, metric) => {
+    const currentSafe = formatMetricSafe(current[metric], metric, current, config);
+    const previousSafe = formatMetricSafe(previous[metric], metric, previous, config);
+    const deltaAvailable = currentSafe.available && previousSafe.available;
+
+    acc[metric] = {
+      label: METRIC_DEFINITIONS[metric].label,
+      value: currentSafe.value,
+      previousValue: previousSafe.value,
+      delta: deltaAvailable ? formatSignedPercent(deltas[metric]) : null,
+      deltaValue: deltaAvailable ? round(deltas[metric], 1) : null,
+      available: currentSafe.available,
+      reason: currentSafe.reason || (!previousSafe.available ? previousSafe.reason : null),
+    };
+    return acc;
+  }, {});
+}
+
+function buildReportGoalAssessment(reportGoal, current, previous, displayMetrics, config) {
+  if (!reportGoal) {
+    return {
+      available: false,
+      objective: null,
+      primaryKpi: null,
+      targetSummary: null,
+      assessment: "No report goal was provided, so the narrator used general Meta performance signals.",
+    };
+  }
+
+  const primaryMetric = metricKeyFromKpi(reportGoal.primaryKpi);
+  const metric = primaryMetric ? displayMetrics[primaryMetric] : null;
+  const targetSummary =
+    reportGoal.primaryKpi && reportGoal.targetValue !== null
+      ? `${reportGoal.primaryKpi} target: ${reportGoal.targetDirection || "near"} ${formatMetric(reportGoal.targetValue, primaryMetric || "spend", {
+          ...config,
+          currencySymbol: `${reportGoal.currency || config.currency} `,
+        })}`
+      : null;
+  let assessment = `Objective context: ${reportGoal.objective || "not specified"}.`;
+
+  if (metric) {
+    assessment = metric.available
+      ? `${reportGoal.primaryKpi} is currently ${metric.value}${metric.delta ? ` (${metric.delta})` : ""}.`
+      : `${reportGoal.primaryKpi} cannot be judged yet: ${metric.reason}`;
+  }
+
+  return {
+    available: true,
+    objective: reportGoal.objective || null,
+    primaryKpi: reportGoal.primaryKpi || null,
+    targetSummary,
+    assessment,
+  };
+}
+
+function metricKeyFromKpi(kpi = "") {
+  const normalized = String(kpi || "").toLowerCase();
+  const map = {
+    cpa: "cpa",
+    cpl: "cpa",
+    roas: "roas",
+    ctr: "ctr",
+    cpc: "cpc",
+    conversions: "conversions",
+    clicks: "clicks",
+  };
+  return map[normalized] || null;
+}
+
+function buildFollowUp(previousNarrative, current, previous, deltas, displayMetrics) {
+  if (!previousNarrative) {
+    return {
+      available: false,
+      previousDecision: null,
+      status: "inconclusive",
+      summary: "",
+      escalation: null,
+    };
+  }
+
+  const previousDecision =
+    previousNarrative.decision ||
+    previousNarrative.userInsight?.decisionBrief?.primaryAction ||
+    previousNarrative.userInsight?.decisionBrief?.decision ||
+    null;
+  const primaryMetric =
+    metricKeyFromKpi(previousNarrative.primaryMetric) ||
+    metricKeyFromKpi(previousNarrative.userInsight?.decisionBrief?.mainMetric?.label) ||
+    Object.entries(displayMetrics)
+      .filter(([, metric]) => metric.deltaValue !== null)
+      .sort((a, b) => Math.abs(b[1].deltaValue) - Math.abs(a[1].deltaValue))[0]?.[0] ||
+    null;
+
+  if (!primaryMetric || !Number.isFinite(deltas[primaryMetric])) {
+    return {
+      available: true,
+      previousDecision,
+      status: "inconclusive",
+      summary: "Previous recommendation could not be evaluated because the watched metric is unavailable.",
+      escalation: null,
+    };
+  }
+
+  const direction = classifyDirection(primaryMetric, deltas[primaryMetric], deltas);
+  const status = direction === "good" ? "improved" : direction === "bad" ? "worsened" : "unchanged";
+  const label = METRIC_DEFINITIONS[primaryMetric]?.label || primaryMetric;
+
+  return {
+    available: true,
+    previousDecision,
+    status,
+    summary:
+      status === "improved"
+        ? `Previous signal improved. ${label} moved in the right direction.`
+        : status === "worsened"
+          ? `Previous recommendation has not worked yet. ${label} weakened again.`
+          : `Previous signal is mostly unchanged. ${label} did not move enough to confirm improvement.`,
+    escalation:
+      status === "worsened"
+        ? "Move from a light optimization to isolating the responsible segment before changing budget."
+        : null,
   };
 }
 
@@ -996,6 +2272,63 @@ function assessDataQuality(rows, prepared, current, previous, config) {
   };
 }
 
+function buildOperationalDataQuality(input, current, previous, config) {
+  const warnings = [];
+  const rawRows = Array.isArray(input.rawRows) ? input.rawRows : [];
+  const missingFields = ["spend", "impressions", "clicks"].filter(
+    (field) => current[field] === 0 && previous[field] === 0
+  );
+
+  if (missingFields.length) {
+    warnings.push(`Missing or zero core metrics: ${missingFields.join(", ")}.`);
+  }
+
+  if (current.conversions === 0 && previous.conversions === 0) {
+    warnings.push(
+      "No conversion signal was found. CPA, ROAS, and conversion-rate recommendations are limited."
+    );
+  }
+
+  if (rawRows.length === 0) {
+    warnings.push("The comparison used pre-aggregated period metrics.");
+  }
+
+  if (input.disclaimer) {
+    warnings.push(input.disclaimer);
+  }
+
+  if (input.mode === "historical_fallback" || input.period?.source === "historical_fallback") {
+    warnings.push("Latest data is stale relative to the scheduled report window.");
+  }
+
+  return {
+    level: warnings.length >= 2 ? "limited" : warnings.length ? "usable" : "strong",
+    inputRows: rawRows.length,
+    datedRows: rawRows.filter(hasDailyDate).length,
+    aggregatedDailyRows: input.periodRowCount || 2,
+    comparedRows: 2,
+    minimumSpendForInsight: config.minimumSpendForInsight,
+    minimumImpressionsForInsight: config.minimumImpressionsForInsight,
+    warnings,
+  };
+}
+
+function buildOperationalBaselineComparison(input) {
+  return {
+    available: Boolean(input.baseline?.available),
+    level: input.baseline?.level || "missing",
+    comparedDays: input.baseline?.comparedDays || 0,
+    requiredDays: input.baseline?.requiredDays || 0,
+    lookbackDays: input.baseline?.lookbackDays || 0,
+    baseline: input.baseline?.metrics || null,
+    deltas: input.baseline?.deltas || {},
+    findings: input.baseline?.findings || [],
+    summary:
+      input.baseline?.summary ||
+      "No historical baseline was passed into this period comparison.",
+  };
+}
+
 function buildExecutiveSummary(
   current,
   previous,
@@ -1017,8 +2350,8 @@ function buildExecutiveSummary(
     .slice(0, 3);
 
   const amount =
-    financialImpact.amount > 0
-      ? ` Estimated impact: ${config.currencySymbol}${formatNumber(financialImpact.amount)}.`
+    financialImpact.shouldDisplayAmount && financialImpact.amount > 0
+      ? ` Estimated impact: ${financialImpact.displayAmount}.`
       : "";
 
   return `${selected.name}: performance ${movement} versus ${previous.date}. ${
@@ -1034,6 +2367,11 @@ function buildUserInsight(
   selected,
   financialImpact,
   adDiagnostics,
+  trustLayer,
+  trustGate,
+  decisionType,
+  topContributor,
+  reportGoalAssessment,
   config
 ) {
   const topBad = anomalies.find((item) => item.direction === "bad");
@@ -1048,7 +2386,10 @@ function buildUserInsight(
     selected,
     primary,
     financialImpact,
-    adDiagnostics.fixFirst,
+    topContributor.available ? adDiagnostics.fixFirst : null,
+    trustGate,
+    decisionType,
+    topContributor,
     config
   );
 
@@ -1056,17 +2397,22 @@ function buildUserInsight(
     headline: buildUserHeadline(selected, primary),
     plainSummary: buildPlainSummary(current, previous, deltas, selected, impactText),
     decisionBrief,
+    trust: buildUserTrustSummary(trustLayer),
+    trustGate,
+    decisionType,
+    topContributor,
+    reportGoalAssessment,
     whatHappened,
     simpleDiagnosis: buildSimpleDiagnosis(selected, primary, whatHappened),
     plainEnglishEvidence: buildPlainEnglishEvidence(anomalies, selected),
     whyItMatters: buildWhyItMatters(selected, financialImpact, config),
-    adToFixFirst: adDiagnostics.fixFirst,
-    adToProtect: adDiagnostics.protect,
-    adsToWatch: adDiagnostics.watch,
+    adToFixFirst: topContributor.available ? adDiagnostics.fixFirst : null,
+    adToProtect: topContributor.available ? adDiagnostics.protect : null,
+    adsToWatch: topContributor.available ? adDiagnostics.watch : [],
     whatToDoNext: buildUserNextSteps(selected, deltas, adDiagnostics.fixFirst),
     watchNext: buildWatchNext(selected, anomalies),
     confidence: selected.confidence.level,
-    urgency: userUrgency(selected.score, selected.positive),
+    urgency: trustGate?.actionability || userUrgency(selected.score, selected.positive),
   };
 }
 
@@ -1078,23 +2424,27 @@ function buildDecisionBrief(
   primary,
   financialImpact,
   fixFirstAd,
+  trustGate,
+  decisionType,
+  topContributor,
   config
 ) {
   const playbook = decisionPlaybook(selected.id, selected);
   const focusName = fixFirstAd?.adName || null;
-  const action = focusName
+  const action = trustGate?.primaryActionOverride || (focusName
     ? `${playbook.primaryAction} Start with "${focusName}".`
-    : playbook.primaryAction;
+    : playbook.primaryAction);
   const impact = formatDecisionImpact(financialImpact, config);
 
   return {
     decision: playbook.decision,
     label: playbook.label,
-    urgency: userUrgency(selected.score, selected.positive),
+    decisionType,
+    urgency: trustGate?.actionability || userUrgency(selected.score, selected.positive),
     timeframe: playbook.timeframe,
     primaryAction: action,
     secondaryAction: playbook.secondaryAction,
-    doNotDo: playbook.doNotDo,
+    doNotDo: buildDoNotDo(playbook, trustGate, decisionType),
     plainReason: playbook.plainReason,
     expectedResult: playbook.expectedResult,
     ifNoImprovement: playbook.ifNoImprovement,
@@ -1110,7 +2460,21 @@ function buildDecisionBrief(
       : null,
     comparedWith: previous.date,
     currentDate: current.date,
-    actionChecklist: buildActionChecklist(selected, deltas, fixFirstAd),
+    actionChecklist: buildActionChecklist(selected, deltas, fixFirstAd, trustGate, topContributor),
+  };
+}
+
+function buildUserTrustSummary(trustLayer) {
+  return {
+    level: trustLayer.level,
+    score: trustLayer.score,
+    summary: trustLayer.reasons[0] || "Recommendation reliability was assessed from available data.",
+    caveats: trustLayer.warnings.slice(0, 3),
+    filteredSignals: trustLayer.reliabilityFilters.slice(0, 3).map((item) => ({
+      metric: item.label,
+      reason: item.reasons[0] || "Signal reliability is limited.",
+    })),
+    baseline: trustLayer.baseline,
   };
 }
 
@@ -1692,7 +3056,7 @@ function metricDecisionPlaybook(metric, direction) {
         checklist: [
           "Find where CPM improved.",
           "Check CTR and conversions from that inventory.",
-          "Scale only the cheaper segments that keep quality.",
+          "Scale only the cheaper segments that keep quality.",   
         ],
       },
     },
@@ -1853,11 +3217,15 @@ function metricDecisionPlaybook(metric, direction) {
 }
 
 function formatDecisionImpact(financialImpact, config) {
-  if (!financialImpact || financialImpact.amount <= 0) {
+  if (!financialImpact || financialImpact.type === "unavailable") {
+    return financialImpact?.summary || "Conversion impact cannot be confirmed from available data.";
+  }
+
+  if (!financialImpact.shouldDisplayAmount || financialImpact.amount <= 0) {
     return "Impact is directionally important, but not reliably quantifiable yet.";
   }
 
-  const amount = `${config.currencySymbol}${formatNumber(financialImpact.amount)}`;
+  const amount = financialImpact.displayAmount || `${config.currencySymbol}${formatNumber(financialImpact.amount)}`;
 
   if (financialImpact.type === "positive") {
     return `${amount} estimated gain`;
@@ -1909,6 +3277,10 @@ function explainMetricMovement(metric, delta) {
       up: "Each lead or purchase became more expensive.",
       down: "Each lead or purchase became cheaper.",
     },
+    roas: {
+      up: "Revenue return improved for the spend used.",
+      down: "Revenue return weakened for the spend used.",
+    },
     cpm: {
       up: "Reaching people became more expensive.",
       down: "Reaching people became cheaper.",
@@ -1946,7 +3318,51 @@ function explainMetricMovement(metric, delta) {
   return explanations[metric]?.[direction] || "This metric moved materially.";
 }
 
-function buildActionChecklist(selected, deltas, fixFirstAd) {
+function buildDoNotDo(playbook, trustGate, decisionType) {
+  if (trustGate?.blocked || trustGate?.level === "low") {
+    return "Do not make optimization decisions from this report until data quality is fixed or verified.";
+  }
+
+  if (trustGate?.flags?.noConversions) {
+    return "Do not judge CPA, ROAS, or conversion impact today because conversions were not recorded.";
+  }
+
+  if (trustGate?.flags?.noAdLevelData && decisionType?.id === "creative_action") {
+    return "Do not pause a specific ad until ad-level data confirms which ad caused the movement.";
+  }
+
+  if (decisionType?.id === "budget_action") {
+    return "Do not increase budget until the primary efficiency signal stabilizes.";
+  }
+
+  return playbook.doNotDo || "Do not make a major change without a stronger signal.";
+}
+
+function buildActionChecklist(selected, deltas, fixFirstAd, trustGate = null, topContributor = null) {
+  if (trustGate?.blocked || trustGate?.flags?.dataWindowMismatch) {
+    return [
+      "Verify the scheduled Meta delivery window and report date range.",
+      "Confirm Meta returned spend, impressions, and clicks for the expected period.",
+      "Run the report again after the data window is corrected.",
+    ];
+  }
+
+  if (trustGate?.flags?.lowSpend) {
+    return [
+      "Keep the campaign running without a major change.",
+      "Wait until spend crosses the reliability threshold.",
+      "Review the next completed report before changing budget or creative.",
+    ];
+  }
+
+  if (trustGate?.flags?.noAdLevelData && !topContributor?.available) {
+    return [
+      "Break the campaign down by ad and ad set before acting.",
+      "Find which ad drove the largest CTR, CPC, CPA, or conversion movement.",
+      "Only change the confirmed weak segment, not the whole campaign.",
+    ];
+  }
+
   const adName = fixFirstAd?.adName || "the weakest ad";
   const checklistByDecision = {
     refresh_creative: [
@@ -2104,15 +3520,19 @@ function buildWhatHappened(deltas, primary, selected) {
 
 function buildWhyItMatters(selected, financialImpact, config) {
   if (selected.positive) {
-    if (financialImpact.amount > 0) {
-      return `This is useful because the campaign may have created about ${config.currencySymbol}${formatNumber(financialImpact.amount)} in efficiency gain.`;
+    if (financialImpact.shouldDisplayAmount && financialImpact.amount > 0) {
+      return `This is useful because the campaign may have created about ${financialImpact.displayAmount} in efficiency gain.`;
     }
 
     return "This is useful because the campaign improved without showing a clear cost problem.";
   }
 
-  if (financialImpact.amount > 0) {
-    return `This matters because the issue may have cost about ${config.currencySymbol}${formatNumber(financialImpact.amount)} in wasted spend or lost efficiency.`;
+  if (financialImpact.type === "unavailable") {
+    return financialImpact.summary || "This matters because conversion impact cannot be confirmed from the available data.";
+  }
+
+  if (financialImpact.shouldDisplayAmount && financialImpact.amount > 0) {
+    return `This matters because the issue may have cost about ${financialImpact.displayAmount} in wasted spend or lost efficiency.`;
   }
 
   return "This matters because the campaign is showing a quality or delivery issue that can become expensive if budget is increased.";
@@ -2224,14 +3644,20 @@ function buildWatchNext(selected, anomalies) {
 }
 
 function formatImpactForUser(financialImpact, config) {
-  if (!financialImpact || financialImpact.amount <= 0) return "";
+  if (!financialImpact || financialImpact.amount <= 0 || financialImpact.type === "unavailable") {
+    return financialImpact?.type === "unavailable" ? financialImpact.summary : "";
+  }
+
+  if (!financialImpact.shouldDisplayAmount) {
+    return financialImpact.summary || "";
+  }
 
   if (financialImpact.type === "positive") {
-    return `Estimated positive impact is around ${config.currencySymbol}${formatNumber(financialImpact.amount)}.`;
+    return `Estimated positive impact is around ${financialImpact.displayAmount}.`;
   }
 
   if (financialImpact.type === "negative") {
-    return `Estimated negative impact is around ${config.currencySymbol}${formatNumber(financialImpact.amount)}.`;
+    return `Estimated negative impact is around ${financialImpact.displayAmount}.`;
   }
 
   return "";
@@ -2468,6 +3894,39 @@ function buildSegmentContributors(rows, currentDate, previousDate, config) {
     .sort((a, b) => b.contributionScore - a.contributionScore);
 }
 
+function normalizeOperationalSegmentContributors(segments) {
+  if (!Array.isArray(segments)) return [];
+
+  return segments
+    .map((segment) => {
+      if (!segment) return null;
+
+      return {
+        id: segment.id || segment.key || segment.campaignId || segment.campaign_id || "segment",
+        campaignId: segment.campaignId || segment.campaign_id || null,
+        campaignName:
+          segment.campaignName || segment.campaign_name || "Monitored campaigns",
+        adsetName: segment.adsetName || segment.adset_name || null,
+        adName: segment.adName || segment.ad_name || null,
+        current: finalizeSegmentMetrics({
+          spend: number(segment.current?.spend),
+          impressions: number(segment.current?.impressions),
+          clicks: number(segment.current?.clicks),
+          conversions: number(segment.current?.conversions),
+        }),
+        previous: finalizeSegmentMetrics({
+          spend: number(segment.previous?.spend),
+          impressions: number(segment.previous?.impressions),
+          clicks: number(segment.previous?.clicks),
+          conversions: number(segment.previous?.conversions),
+        }),
+        deltas: segment.deltas || {},
+        contributionScore: number(segment.contributionScore),
+      };
+    })
+    .filter(Boolean);
+}
+
 function buildAdDiagnostics(segments, selected, config) {
   const diagnosed = (segments || [])
     .map((segment) => diagnoseSegment(segment, selected, config))
@@ -2636,24 +4095,24 @@ function segmentSummary(segment, percentDeltas, config) {
     campaignId: segment.campaignId,
     campaignName: segment.campaignName,
     adsetName: segment.adsetName,
-    adName: segment.adName || "Unknown ad",
+    adName: segment.adName || null,
     current: {
       spend: formatMetric(segment.current.spend, "spend", config),
       impressions: formatMetric(segment.current.impressions, "impressions", config),
       clicks: formatMetric(segment.current.clicks, "clicks", config),
       conversions: formatMetric(segment.current.conversions, "conversions", config),
-      ctr: formatMetric(segment.current.ctr, "ctr", config),
-      cpc: formatMetric(segment.current.cpc, "cpc", config),
-      cpa: formatMetric(segment.current.cpa, "cpa", config),
+      ctr: formatMetricSafe(segment.current.ctr, "ctr", segment.current, config).value,
+      cpc: formatMetricSafe(segment.current.cpc, "cpc", segment.current, config).value,
+      cpa: formatMetricSafe(segment.current.cpa, "cpa", segment.current, config).value,
     },
     previous: {
       spend: formatMetric(segment.previous.spend, "spend", config),
       impressions: formatMetric(segment.previous.impressions, "impressions", config),
       clicks: formatMetric(segment.previous.clicks, "clicks", config),
       conversions: formatMetric(segment.previous.conversions, "conversions", config),
-      ctr: formatMetric(segment.previous.ctr, "ctr", config),
-      cpc: formatMetric(segment.previous.cpc, "cpc", config),
-      cpa: formatMetric(segment.previous.cpa, "cpa", config),
+      ctr: formatMetricSafe(segment.previous.ctr, "ctr", segment.previous, config).value,
+      cpc: formatMetricSafe(segment.previous.cpc, "cpc", segment.previous, config).value,
+      cpa: formatMetricSafe(segment.previous.cpa, "cpa", segment.previous, config).value,
     },
     deltas: {
       spend: formatSignedPercent(percentDeltas.spend),
@@ -2764,6 +4223,50 @@ function insufficientData(reason, context = {}) {
       confidence: "Low",
       urgency: "fix_data",
     },
+    decisionType: {
+      id: "data_issue",
+      label: "Data Issue",
+      description: "The data is not reliable enough for campaign optimization decisions.",
+    },
+    trustGate: {
+      level: "low",
+      actionability: "fix_data",
+      blocked: true,
+      reasons: [reason],
+      caveats: ["No optimization recommendation should be made until data quality is fixed."],
+      flags: {
+        dataWindowMismatch: false,
+        lowSpend: true,
+        lowClicks: true,
+        noConversions: true,
+        noBaseline: true,
+        noAdLevelData: true,
+      },
+    },
+    topContributor: {
+      available: false,
+      level: null,
+      name: null,
+      contributionSummary:
+        "Ad-level data was not included, so the engine can only diagnose campaign-level movement.",
+      recommendedAction: "Break this campaign down by ad before making creative changes.",
+      evidence: [],
+    },
+    followUp: {
+      available: false,
+      previousDecision: null,
+      status: "inconclusive",
+      summary: "",
+      escalation: null,
+    },
+    displayMetrics: {},
+    reportGoalAssessment: {
+      available: false,
+      objective: null,
+      primaryKpi: null,
+      targetSummary: null,
+      assessment: "No reliable goal assessment is available until comparable Meta data exists.",
+    },
     campaign: {
       id: context.campaignId || null,
       name: context.campaignName || null,
@@ -2786,11 +4289,14 @@ function insufficientData(reason, context = {}) {
       evidence: [],
     },
     financialImpact: {
-      type: "unknown",
+      type: "unavailable",
       amount: 0,
+      displayAmount: "N/A",
+      shouldDisplayAmount: false,
       currency: context.currency || DEFAULT_OPTIONS.currency,
       summary: "Financial impact cannot be estimated without two comparable daily rows.",
       method: "No estimate.",
+      caveats: [reason],
     },
     decision:
       "Pull campaign insights with daily breakdown enabled, then compare the latest two completed days.",
@@ -2894,6 +4400,10 @@ function movementVerb(metric, delta) {
     return delta > 0 ? "increased" : "fell";
   }
 
+  if (metric === "roas") {
+    return delta > 0 ? "improved" : "dropped";
+  }
+
   if (metric === "spend" || metric === "frequency") {
     return delta > 0 ? "increased" : "decreased";
   }
@@ -2929,6 +4439,7 @@ function uniqueList(items) {
 
 export {
   generatePerformanceNarrative,
+  generateOperationalInsight,
   normalizeMetaDailyRow,
   calculateDeltas,
   rankAnomalies,

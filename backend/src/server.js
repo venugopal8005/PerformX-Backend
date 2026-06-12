@@ -4,10 +4,15 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import { initAuth } from "auth-module";
 import "dotenv/config";
-import taskRouter from "../src/routes/task.routes.js"
+
 import metaRouter from "./routes/meta.routes.js";
 import reportRouter from "./routes/reports.routes.js";
+import activityRouter from "./routes/activities.routes.js";
+import clientRouter from "./routes/clients.routes.js";
+import signalRouter from "./routes/signals.routes.js";
+import { startN8NScheduler } from "./jobs/n8nScheduler.js";
 
+startN8NScheduler();
 const app = express();
 
 //middleware
@@ -19,9 +24,12 @@ app.use(
 );
 app.use(express.json());
 app.use(cookieParser());
-app.use("/api/tasks", taskRouter);
+
 app.use("/api/meta", metaRouter);
 app.use("/api/reports", reportRouter);
+app.use("/api/clients", clientRouter);
+app.use("/api/signals", signalRouter);
+app.use("/api/activities", activityRouter);
 
 // db
 try {

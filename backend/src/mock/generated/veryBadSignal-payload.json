@@ -1,0 +1,1191 @@
+{
+  "mock": true,
+  "scenarioKey": "veryBadSignal",
+  "reportId": "mock-veryBadSignal",
+  "reportName": "Very bad signal / action needed",
+  "agencyId": "mock-agency",
+  "clientId": "mock-client",
+  "recipients": [],
+  "email": null,
+  "adAccountId": "act_9876543210",
+  "adAccountName": "Mock Meta Ad Account",
+  "narrative": {
+    "status": "ok",
+    "engineVersion": "1.0.0",
+    "analysisType": "daily_comparison",
+    "guidanceCoverage": {
+      "mode": "archetype_and_metric_specific_playbooks",
+      "supportedMetrics": [
+        "spend",
+        "impressions",
+        "reach",
+        "frequency",
+        "clicks",
+        "ctr",
+        "cpc",
+        "cpm",
+        "conversions",
+        "roas",
+        "cpa",
+        "conversionRate"
+      ]
+    },
+    "executiveSummary": "Creative Fatigue: performance weakened versus 2026-06-10. Spend +9.4%, CTR -51.6%, CPC +118.4%. Pause the weakest creative set and launch 2-3 new variations against the same audience. Estimated impact: INR 2,606.",
+    "userInsight": {
+      "headline": "Creative fatigue is likely making clicks more expensive.",
+      "plainSummary": "Compared with 2026-06-10, 2026-06-11 looks worse. Engagement efficiency fell while traffic became more expensive, which usually means the current creative is losing response quality. Estimated negative impact is around INR 2,606.",
+      "decisionBrief": {
+        "decision": "refresh_creative",
+        "label": "Refresh the weakest creative",
+        "decisionType": {
+          "id": "creative_action",
+          "label": "Creative Action",
+          "description": "The recommendation is to improve ad message or creative before changing budget."
+        },
+        "urgency": "act_today",
+        "timeframe": "Today",
+        "primaryAction": "Pause or reduce the weakest ad and launch 2-3 fresh creative variations. Start with \"UGC Testimonial - Old Hook\".",
+        "secondaryAction": "Keep the audience and budget stable while the new creative gathers signal.",
+        "doNotDo": "Do not increase budget into the same tired creative.",
+        "plainReason": "People are responding less, and each click is becoming more expensive.",
+        "expectedResult": "CTR should improve first; CPC should start easing within 48-72 hours.",
+        "ifNoImprovement": "If CTR does not recover after 2-3 days, test a new audience angle as well.",
+        "owner": "Creative or campaign manager",
+        "impact": "INR 2,606 estimated risk",
+        "confidence": "High",
+        "mainMetric": {
+          "label": "CPA",
+          "change": "+234%",
+          "plainChange": "became more expensive by 234%"
+        },
+        "comparedWith": "2026-06-10",
+        "currentDate": "2026-06-11",
+        "actionChecklist": [
+          "Open UGC Testimonial - Old Hook in Meta Ads Manager.",
+          "Pause it or reduce its spend.",
+          "Launch 2-3 new versions with a different hook, visual, and first line."
+        ]
+      },
+      "trust": {
+        "level": "high",
+        "score": 100,
+        "summary": "The recommendation is supported by enough delivery volume and usable metric data.",
+        "caveats": [],
+        "filteredSignals": [
+          {
+            "metric": "ROAS",
+            "reason": "No usable value was present for this metric in either compared period."
+          }
+        ],
+        "baseline": {
+          "level": "strong",
+          "available": true,
+          "comparedDays": 5,
+          "requiredDays": 4,
+          "summary": "Compared against a 5-day baseline before 2026-06-11."
+        }
+      },
+      "trustGate": {
+        "level": "high",
+        "actionability": "act_today",
+        "blocked": false,
+        "reasons": [],
+        "caveats": [],
+        "flags": {
+          "dataWindowMismatch": false,
+          "lowSpend": false,
+          "lowClicks": false,
+          "noConversions": false,
+          "noBaseline": false,
+          "noAdLevelData": false
+        },
+        "severityCap": null,
+        "decisionTypeOverride": null,
+        "primaryActionOverride": null
+      },
+      "decisionType": {
+        "id": "creative_action",
+        "label": "Creative Action",
+        "description": "The recommendation is to improve ad message or creative before changing budget."
+      },
+      "topContributor": {
+        "available": true,
+        "level": "ad",
+        "name": "UGC Testimonial - Old Hook",
+        "contributionSummary": "CTR dropped -61.6%.",
+        "recommendedAction": "Pause this ad or refresh its hook, visual, and primary text today.",
+        "evidence": [
+          "CTR dropped -61.6%.",
+          "CPC increased +216.8%.",
+          "CPA increased +473.1%.",
+          "Conversions fell -75%."
+        ],
+        "metrics": {
+          "current": {
+            "spend": "INR 2,046",
+            "impressions": "61,740",
+            "clicks": "452",
+            "conversions": "6",
+            "ctr": "0.73%",
+            "cpc": "INR 4.53",
+            "cpa": "INR 341"
+          },
+          "previous": {
+            "spend": "INR 1,428",
+            "impressions": "52,460",
+            "clicks": "998",
+            "conversions": "24",
+            "ctr": "1.9%",
+            "cpc": "INR 1.43",
+            "cpa": "INR 59.5"
+          },
+          "deltas": {
+            "spend": "+43.3%",
+            "impressions": "+17.7%",
+            "clicks": "-54.7%",
+            "conversions": "-75%",
+            "ctr": "-61.6%",
+            "cpc": "+216.8%",
+            "cpa": "+473.1%"
+          }
+        }
+      },
+      "reportGoalAssessment": {
+        "available": true,
+        "objective": "leads",
+        "primaryKpi": "CPA",
+        "targetSummary": "CPA target: below INR 65",
+        "assessment": "CPA is currently INR 196 (+234%)."
+      },
+      "whatHappened": [
+        "CPA became more expensive by 234%.",
+        "CTR dropped by 51.6%.",
+        "CPC became more expensive by 118.4%.",
+        "Conversions fell by 67.2%."
+      ],
+      "simpleDiagnosis": {
+        "title": "Creative Fatigue",
+        "inPlainEnglish": "People are responding less, and each click is becoming more expensive. CPA became more expensive by 234%.",
+        "evidence": [
+          "CPA became more expensive by 234%.",
+          "CTR dropped by 51.6%.",
+          "CPC became more expensive by 118.4%."
+        ]
+      },
+      "plainEnglishEvidence": [
+        {
+          "metric": "CPA",
+          "change": "+234%",
+          "meaning": "Each lead or purchase became more expensive."
+        },
+        {
+          "metric": "CPC",
+          "change": "+118.4%",
+          "meaning": "Each website visit or click became more expensive."
+        },
+        {
+          "metric": "Conversions",
+          "change": "-67.2%",
+          "meaning": "The campaign produced fewer leads or purchases."
+        }
+      ],
+      "whyItMatters": "This matters because the issue may have cost about INR 2,606 in wasted spend or lost efficiency.",
+      "adToFixFirst": {
+        "classification": "underperforming",
+        "score": 328.1,
+        "action": "Pause this ad or refresh its hook, visual, and primary text today.",
+        "reasons": [
+          "CTR dropped -61.6%.",
+          "CPC increased +216.8%.",
+          "CPA increased +473.1%.",
+          "Conversions fell -75%."
+        ],
+        "id": "23861234567890345|adset_bad_1|ad_bad_1",
+        "campaignId": "23861234567890345",
+        "campaignName": "Dehalt Campaign 1 | Retargeting | Leads",
+        "adsetName": "Retargeting 30D | Engagers",
+        "adName": "UGC Testimonial - Old Hook",
+        "current": {
+          "spend": "INR 2,046",
+          "impressions": "61,740",
+          "clicks": "452",
+          "conversions": "6",
+          "ctr": "0.73%",
+          "cpc": "INR 4.53",
+          "cpa": "INR 341"
+        },
+        "previous": {
+          "spend": "INR 1,428",
+          "impressions": "52,460",
+          "clicks": "998",
+          "conversions": "24",
+          "ctr": "1.9%",
+          "cpc": "INR 1.43",
+          "cpa": "INR 59.5"
+        },
+        "deltas": {
+          "spend": "+43.3%",
+          "impressions": "+17.7%",
+          "clicks": "-54.7%",
+          "conversions": "-75%",
+          "ctr": "-61.6%",
+          "cpc": "+216.8%",
+          "cpa": "+473.1%"
+        }
+      },
+      "adToProtect": null,
+      "adsToWatch": [],
+      "whatToDoNext": [
+        "Pause this ad or refresh its hook, visual, and primary text today. Focus on \"UGC Testimonial - Old Hook\" first.",
+        "Do not increase budget today.",
+        "Pause or reduce spend on the weakest creative.",
+        "Launch 2-3 fresh creative variations with a new hook, image/video, and primary text."
+      ],
+      "watchNext": {
+        "timeframe": "Next 48-72 hours",
+        "metrics": [
+          "CTR",
+          "CPC",
+          "Frequency"
+        ],
+        "goodSign": "CTR should recover first, followed by CPC normalization within 48-72 hours.",
+        "badSign": "The same issue gets worse in the next daily report."
+      },
+      "confidence": "High",
+      "urgency": "act_today"
+    },
+    "campaign": {
+      "id": "23861234567890345",
+      "name": "Dehalt Campaign 1 | Retargeting | Leads"
+    },
+    "period": {
+      "current": "2026-06-11",
+      "previous": "2026-06-10"
+    },
+    "dataQuality": {
+      "level": "strong",
+      "inputRows": 18,
+      "datedRows": 18,
+      "aggregatedDailyRows": 6,
+      "comparedRows": 2,
+      "minimumSpendForInsight": 1,
+      "minimumImpressionsForInsight": 100,
+      "warnings": []
+    },
+    "trustLayer": {
+      "level": "high",
+      "score": 100,
+      "reasons": [
+        "The recommendation is supported by enough delivery volume and usable metric data.",
+        "Compared against a 5-day baseline before 2026-06-11.",
+        "The movement is large enough to treat as a meaningful signal."
+      ],
+      "warnings": [],
+      "minimumThresholds": {
+        "spend": {
+          "passed": true,
+          "current": 3720,
+          "previous": 3400,
+          "required": 1
+        },
+        "impressions": {
+          "passed": true,
+          "current": 126000,
+          "previous": 122000,
+          "required": 100
+        },
+        "clicks": {
+          "passed": true,
+          "total": 3479,
+          "required": 20
+        },
+        "conversions": {
+          "passed": true,
+          "total": 77,
+          "required": 3
+        },
+        "totalSpend": 7120,
+        "totalImpressions": 248000
+      },
+      "metricReliability": {
+        "spend": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "impressions": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "reach": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "frequency": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "clicks": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "ctr": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "cpc": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "cpm": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "conversions": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "roas": {
+          "level": "unusable",
+          "usable": false,
+          "scoreMultiplier": 0,
+          "reasons": [
+            "No usable value was present for this metric in either compared period.",
+            "ROAS cannot be compared because purchase value or ROAS data was not available."
+          ]
+        },
+        "cpa": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "conversionRate": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        }
+      },
+      "reliabilityFilters": [
+        {
+          "metric": "roas",
+          "label": "ROAS",
+          "level": "unusable",
+          "usable": false,
+          "reasons": [
+            "No usable value was present for this metric in either compared period.",
+            "ROAS cannot be compared because purchase value or ROAS data was not available."
+          ]
+        }
+      ],
+      "baseline": {
+        "level": "strong",
+        "available": true,
+        "comparedDays": 5,
+        "requiredDays": 4,
+        "summary": "Compared against a 5-day baseline before 2026-06-11."
+      },
+      "rowCoverage": {
+        "inputRows": 18,
+        "filteredRows": 18,
+        "aggregatedDailyRows": 6
+      }
+    },
+    "trustGate": {
+      "level": "high",
+      "actionability": "act_today",
+      "blocked": false,
+      "reasons": [],
+      "caveats": [],
+      "flags": {
+        "dataWindowMismatch": false,
+        "lowSpend": false,
+        "lowClicks": false,
+        "noConversions": false,
+        "noBaseline": false,
+        "noAdLevelData": false
+      },
+      "severityCap": null,
+      "decisionTypeOverride": null,
+      "primaryActionOverride": null
+    },
+    "baselineComparison": {
+      "available": true,
+      "level": "strong",
+      "comparedDays": 5,
+      "requiredDays": 4,
+      "lookbackDays": 7,
+      "baseline": {
+        "spend": 3202,
+        "impressions": 120100,
+        "reach": 67540,
+        "clicks": 2284,
+        "conversions": 60.4,
+        "roas": 0,
+        "frequency": 1.78,
+        "ctr": 1.9,
+        "cpc": 1.4,
+        "cpm": 26.66,
+        "cpa": 53.01,
+        "conversionRate": 2.64
+      },
+      "deltas": {
+        "spend": 16.18,
+        "impressions": 4.91,
+        "reach": -26.71,
+        "frequency": 43.26,
+        "clicks": -49.26,
+        "ctr": -51.58,
+        "cpc": 129.29,
+        "cpm": 10.73,
+        "conversions": -68.54,
+        "roas": 0,
+        "cpa": 269.35,
+        "conversionRate": -37.88
+      },
+      "findings": [
+        {
+          "metric": "cpa",
+          "label": "CPA",
+          "current": 195.79,
+          "baseline": 53.01,
+          "delta": 269.4,
+          "direction": "bad"
+        },
+        {
+          "metric": "cpc",
+          "label": "CPC",
+          "current": 3.21,
+          "baseline": 1.4,
+          "delta": 129.3,
+          "direction": "bad"
+        },
+        {
+          "metric": "conversions",
+          "label": "Conversions",
+          "current": 19,
+          "baseline": 60.4,
+          "delta": -68.5,
+          "direction": "bad"
+        },
+        {
+          "metric": "ctr",
+          "label": "CTR",
+          "current": 0.92,
+          "baseline": 1.9,
+          "delta": -51.6,
+          "direction": "bad"
+        },
+        {
+          "metric": "clicks",
+          "label": "Clicks",
+          "current": 1159,
+          "baseline": 2284,
+          "delta": -49.3,
+          "direction": "bad"
+        }
+      ],
+      "summary": "Compared against a 5-day baseline before 2026-06-11."
+    },
+    "decisionType": {
+      "id": "creative_action",
+      "label": "Creative Action",
+      "description": "The recommendation is to improve ad message or creative before changing budget."
+    },
+    "topContributor": {
+      "available": true,
+      "level": "ad",
+      "name": "UGC Testimonial - Old Hook",
+      "contributionSummary": "CTR dropped -61.6%.",
+      "recommendedAction": "Pause this ad or refresh its hook, visual, and primary text today.",
+      "evidence": [
+        "CTR dropped -61.6%.",
+        "CPC increased +216.8%.",
+        "CPA increased +473.1%.",
+        "Conversions fell -75%."
+      ],
+      "metrics": {
+        "current": {
+          "spend": "INR 2,046",
+          "impressions": "61,740",
+          "clicks": "452",
+          "conversions": "6",
+          "ctr": "0.73%",
+          "cpc": "INR 4.53",
+          "cpa": "INR 341"
+        },
+        "previous": {
+          "spend": "INR 1,428",
+          "impressions": "52,460",
+          "clicks": "998",
+          "conversions": "24",
+          "ctr": "1.9%",
+          "cpc": "INR 1.43",
+          "cpa": "INR 59.5"
+        },
+        "deltas": {
+          "spend": "+43.3%",
+          "impressions": "+17.7%",
+          "clicks": "-54.7%",
+          "conversions": "-75%",
+          "ctr": "-61.6%",
+          "cpc": "+216.8%",
+          "cpa": "+473.1%"
+        }
+      }
+    },
+    "followUp": {
+      "available": false,
+      "previousDecision": null,
+      "status": "inconclusive",
+      "summary": "",
+      "escalation": null
+    },
+    "displayMetrics": {
+      "spend": {
+        "label": "Spend",
+        "value": "INR 3,720",
+        "previousValue": "INR 3,400",
+        "delta": "+9.4%",
+        "deltaValue": 9.4,
+        "available": true,
+        "reason": null
+      },
+      "impressions": {
+        "label": "Impressions",
+        "value": "1,26,000",
+        "previousValue": "1,22,000",
+        "delta": "+3.3%",
+        "deltaValue": 3.3,
+        "available": true,
+        "reason": null
+      },
+      "reach": {
+        "label": "Reach",
+        "value": "49,500",
+        "previousValue": "65,000",
+        "delta": "-23.8%",
+        "deltaValue": -23.8,
+        "available": true,
+        "reason": null
+      },
+      "frequency": {
+        "label": "Frequency",
+        "value": "2.55",
+        "previousValue": "1.88",
+        "delta": "+35.6%",
+        "deltaValue": 35.6,
+        "available": true,
+        "reason": null
+      },
+      "clicks": {
+        "label": "Clicks",
+        "value": "1,159",
+        "previousValue": "2,320",
+        "delta": "-50%",
+        "deltaValue": -50,
+        "available": true,
+        "reason": null
+      },
+      "ctr": {
+        "label": "CTR",
+        "value": "0.92%",
+        "previousValue": "1.9%",
+        "delta": "-51.6%",
+        "deltaValue": -51.6,
+        "available": true,
+        "reason": null
+      },
+      "cpc": {
+        "label": "CPC",
+        "value": "INR 3.21",
+        "previousValue": "INR 1.47",
+        "delta": "+118.4%",
+        "deltaValue": 118.4,
+        "available": true,
+        "reason": null
+      },
+      "cpm": {
+        "label": "CPM",
+        "value": "INR 29.52",
+        "previousValue": "INR 27.87",
+        "delta": "+5.9%",
+        "deltaValue": 5.9,
+        "available": true,
+        "reason": null
+      },
+      "conversions": {
+        "label": "Conversions",
+        "value": "19",
+        "previousValue": "58",
+        "delta": "-67.2%",
+        "deltaValue": -67.2,
+        "available": true,
+        "reason": null
+      },
+      "roas": {
+        "label": "ROAS",
+        "value": "N/A",
+        "previousValue": "N/A",
+        "delta": null,
+        "deltaValue": null,
+        "available": false,
+        "reason": "No purchase value or ROAS was available."
+      },
+      "cpa": {
+        "label": "CPA",
+        "value": "INR 196",
+        "previousValue": "INR 58.62",
+        "delta": "+234%",
+        "deltaValue": 234,
+        "available": true,
+        "reason": null
+      },
+      "conversionRate": {
+        "label": "Conversion rate",
+        "value": "1.64%",
+        "previousValue": "2.5%",
+        "delta": "-34.4%",
+        "deltaValue": -34.4,
+        "available": true,
+        "reason": null
+      }
+    },
+    "reportGoalAssessment": {
+      "available": true,
+      "objective": "leads",
+      "primaryKpi": "CPA",
+      "targetSummary": "CPA target: below INR 65",
+      "assessment": "CPA is currently INR 196 (+234%)."
+    },
+    "snapshot": {
+      "spend": "INR 3,720 (+9.4%)",
+      "impressions": "1,26,000 (+3.3%)",
+      "clicks": "1,159 (-50%)",
+      "ctr": "0.92% (-51.6%)",
+      "cpc": "INR 3.21 (+118.4%)",
+      "conversions": "19 (-67.2%)",
+      "roas": {
+        "value": "N/A",
+        "available": false,
+        "reason": "No purchase value or ROAS was available."
+      },
+      "cpa": "INR 196 (+234%)",
+      "frequency": "2.55 (+35.6%)",
+      "cpm": "INR 29.52 (+5.9%)"
+    },
+    "keyDelta": "Critical cpa movement (CPA +234%)",
+    "likelyCause": {
+      "id": "creative_fatigue",
+      "archetype": "Creative Fatigue",
+      "confidence": {
+        "level": "High",
+        "score": 24
+      },
+      "summary": "Engagement efficiency fell while traffic became more expensive, which usually means the current creative is losing response quality.",
+      "evidence": [
+        "CTR -51.6% (0.92% vs 1.9%)",
+        "CPC +118.4% (3.21 vs 1.47)",
+        "Frequency +35.6% (2.55 vs 1.88)",
+        "Clicks -50% (1,159 vs 2,320)"
+      ]
+    },
+    "financialImpact": {
+      "type": "negative",
+      "amount": 2606.23,
+      "currency": "INR",
+      "summary": "Estimated efficiency loss of INR 2,606 from reduced conversion output or higher traffic cost.",
+      "method": "max(lost conversions at previous CPA, extra CPA cost on current conversions, extra CPC cost on current clicks)",
+      "displayAmount": "INR 2,606",
+      "shouldDisplayAmount": true,
+      "percentOfSpend": 36.6,
+      "caveats": []
+    },
+    "decision": "Pause the weakest creative set and launch 2-3 new variations against the same audience.",
+    "recommendations": [
+      {
+        "priority": "P1",
+        "urgency": "high",
+        "title": "Act on the primary signal",
+        "action": "Pause the weakest creative set and launch 2-3 new variations against the same audience.",
+        "reason": "Engagement efficiency fell while traffic became more expensive, which usually means the current creative is losing response quality."
+      },
+      {
+        "priority": "P2",
+        "urgency": "medium",
+        "title": "Validate cpa",
+        "action": "Compare cpa by campaign, ad set, ad, placement, and age/gender split before making broad budget changes.",
+        "reason": "CPA moved +234%, making it the strongest measurable signal."
+      },
+      {
+        "priority": "P3",
+        "urgency": "medium",
+        "title": "Check post-click health",
+        "action": "Review landing page speed, form completion, checkout errors, tracking events, and recent offer changes.",
+        "reason": "Conversion efficiency changed enough that the issue may be outside Meta delivery."
+      }
+    ],
+    "diagnosticChecks": [
+      "Compare CTR and CPC by creative ID for the last 3-7 days.",
+      "Check frequency and first-time impression ratio by ad set.",
+      "Confirm no winning creative was paused or rejected."
+    ],
+    "monitoringPlan": {
+      "window": "next_48_to_72_hours",
+      "cadence": "check_every_12_hours",
+      "watchMetrics": [
+        "CPA",
+        "CPC",
+        "Conversions"
+      ],
+      "successSignal": "CTR should recover first, followed by CPC normalization within 48-72 hours.",
+      "rollbackSignal": "The same anomaly worsens in the next completed daily comparison."
+    },
+    "guardrails": [
+      {
+        "metric": "spend",
+        "rule": "Avoid increasing budget until the primary anomaly stabilizes.",
+        "current": "INR 3,720",
+        "previous": "INR 3,400",
+        "delta": "+9.4%"
+      },
+      {
+        "metric": "cpa",
+        "rule": "Use previous CPA as the first rollback benchmark.",
+        "current": "INR 196",
+        "previous": "INR 58.62",
+        "delta": "+234%"
+      },
+      {
+        "metric": "ctr",
+        "rule": "Treat further CTR decline as evidence that creative or audience fit is weakening.",
+        "current": "0.92%",
+        "previous": "1.9%",
+        "delta": "-51.6%"
+      }
+    ],
+    "nextSignal": "CTR should recover first, followed by CPC normalization within 48-72 hours.",
+    "severity": {
+      "level": "critical",
+      "score": 462.9
+    },
+    "metrics": {
+      "current": {
+        "date": "2026-06-11",
+        "campaignId": "23861234567890345",
+        "campaignName": "Dehalt Campaign 1 | Retargeting | Leads",
+        "spend": 3720,
+        "impressions": 126000,
+        "reach": 49500,
+        "frequency": 2.55,
+        "clicks": 1159,
+        "ctr": 0.92,
+        "cpc": 3.21,
+        "cpm": 29.52,
+        "conversions": 19,
+        "roas": 0,
+        "cpa": 195.79,
+        "conversionRate": 1.64
+      },
+      "previous": {
+        "date": "2026-06-10",
+        "campaignId": "23861234567890345",
+        "campaignName": "Dehalt Campaign 1 | Retargeting | Leads",
+        "spend": 3400,
+        "impressions": 122000,
+        "reach": 65000,
+        "frequency": 1.88,
+        "clicks": 2320,
+        "ctr": 1.9,
+        "cpc": 1.47,
+        "cpm": 27.87,
+        "conversions": 58,
+        "roas": 0,
+        "cpa": 58.62,
+        "conversionRate": 2.5
+      },
+      "deltas": {
+        "spend": 9.41,
+        "impressions": 3.28,
+        "reach": -23.85,
+        "frequency": 35.64,
+        "clicks": -50.04,
+        "ctr": -51.58,
+        "cpc": 118.37,
+        "cpm": 5.92,
+        "conversions": -67.24,
+        "roas": 0,
+        "cpa": 234,
+        "conversionRate": -34.4
+      }
+    },
+    "rankedAnomalies": [
+      {
+        "metric": "cpa",
+        "label": "CPA",
+        "current": 195.79,
+        "previous": 58.62,
+        "delta": 234,
+        "direction": "bad",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 195
+      },
+      {
+        "metric": "cpc",
+        "label": "CPC",
+        "current": 3.21,
+        "previous": 1.47,
+        "delta": 118.4,
+        "direction": "bad",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 138.5
+      },
+      {
+        "metric": "conversions",
+        "label": "Conversions",
+        "current": 19,
+        "previous": 58,
+        "delta": -67.2,
+        "direction": "bad",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 87.4
+      },
+      {
+        "metric": "ctr",
+        "label": "CTR",
+        "current": 0.92,
+        "previous": 1.9,
+        "delta": -51.6,
+        "direction": "bad",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 67.1
+      },
+      {
+        "metric": "clicks",
+        "label": "Clicks",
+        "current": 1159,
+        "previous": 2320,
+        "delta": -50,
+        "direction": "bad",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 52
+      }
+    ],
+    "segmentContributors": [
+      {
+        "id": "23861234567890345|adset_bad_1|ad_bad_1",
+        "campaignId": "23861234567890345",
+        "campaignName": "Dehalt Campaign 1 | Retargeting | Leads",
+        "adsetName": "Retargeting 30D | Engagers",
+        "adName": "UGC Testimonial - Old Hook",
+        "current": {
+          "spend": 2046,
+          "impressions": 61740,
+          "clicks": 452,
+          "conversions": 6,
+          "ctr": 0.73,
+          "cpc": 4.53,
+          "cpa": 341
+        },
+        "previous": {
+          "spend": 1428,
+          "impressions": 52460,
+          "clicks": 998,
+          "conversions": 24,
+          "ctr": 1.9,
+          "cpc": 1.43,
+          "cpa": 59.5
+        },
+        "deltas": {
+          "spend": 618,
+          "impressions": 9280,
+          "clicks": -546,
+          "conversions": -18
+        },
+        "contributionScore": 2616
+      },
+      {
+        "id": "23861234567890345|adset_bad_2|ad_bad_2",
+        "campaignId": "23861234567890345",
+        "campaignName": "Dehalt Campaign 1 | Retargeting | Leads",
+        "adsetName": "Website Visitors 14D",
+        "adName": "Static Offer - Limited Slots",
+        "current": {
+          "spend": 1153.2,
+          "impressions": 41580,
+          "clicks": 394,
+          "conversions": 7,
+          "ctr": 0.95,
+          "cpc": 2.93,
+          "cpa": 164.74
+        },
+        "previous": {
+          "spend": 1190,
+          "impressions": 41480,
+          "clicks": 812,
+          "conversions": 21,
+          "ctr": 1.96,
+          "cpc": 1.47,
+          "cpa": 56.67
+        },
+        "deltas": {
+          "spend": -36.8,
+          "impressions": 100,
+          "clicks": -418,
+          "conversions": -14
+        },
+        "contributionScore": 1570.8
+      },
+      {
+        "id": "23861234567890345|adset_bad_3|ad_bad_3",
+        "campaignId": "23861234567890345",
+        "campaignName": "Dehalt Campaign 1 | Retargeting | Leads",
+        "adsetName": "Lookalike Leads 2%",
+        "adName": "Founder Video - Direct Pitch",
+        "current": {
+          "spend": 520.8,
+          "impressions": 22680,
+          "clicks": 313,
+          "conversions": 6,
+          "ctr": 1.38,
+          "cpc": 1.66,
+          "cpa": 86.8
+        },
+        "previous": {
+          "spend": 782,
+          "impressions": 28060,
+          "clicks": 510,
+          "conversions": 13,
+          "ctr": 1.82,
+          "cpc": 1.53,
+          "cpa": 60.15
+        },
+        "deltas": {
+          "spend": -261.2,
+          "impressions": -5380,
+          "clicks": -197,
+          "conversions": -7
+        },
+        "contributionScore": 992.2
+      }
+    ],
+    "adDiagnostics": {
+      "fixFirst": {
+        "classification": "underperforming",
+        "score": 328.1,
+        "action": "Pause this ad or refresh its hook, visual, and primary text today.",
+        "reasons": [
+          "CTR dropped -61.6%.",
+          "CPC increased +216.8%.",
+          "CPA increased +473.1%.",
+          "Conversions fell -75%."
+        ],
+        "id": "23861234567890345|adset_bad_1|ad_bad_1",
+        "campaignId": "23861234567890345",
+        "campaignName": "Dehalt Campaign 1 | Retargeting | Leads",
+        "adsetName": "Retargeting 30D | Engagers",
+        "adName": "UGC Testimonial - Old Hook",
+        "current": {
+          "spend": "INR 2,046",
+          "impressions": "61,740",
+          "clicks": "452",
+          "conversions": "6",
+          "ctr": "0.73%",
+          "cpc": "INR 4.53",
+          "cpa": "INR 341"
+        },
+        "previous": {
+          "spend": "INR 1,428",
+          "impressions": "52,460",
+          "clicks": "998",
+          "conversions": "24",
+          "ctr": "1.9%",
+          "cpc": "INR 1.43",
+          "cpa": "INR 59.5"
+        },
+        "deltas": {
+          "spend": "+43.3%",
+          "impressions": "+17.7%",
+          "clicks": "-54.7%",
+          "conversions": "-75%",
+          "ctr": "-61.6%",
+          "cpc": "+216.8%",
+          "cpa": "+473.1%"
+        }
+      },
+      "protect": null,
+      "watch": [],
+      "all": [
+        {
+          "classification": "underperforming",
+          "score": 328.1,
+          "action": "Pause this ad or refresh its hook, visual, and primary text today.",
+          "reasons": [
+            "CTR dropped -61.6%.",
+            "CPC increased +216.8%.",
+            "CPA increased +473.1%.",
+            "Conversions fell -75%."
+          ],
+          "id": "23861234567890345|adset_bad_1|ad_bad_1",
+          "campaignId": "23861234567890345",
+          "campaignName": "Dehalt Campaign 1 | Retargeting | Leads",
+          "adsetName": "Retargeting 30D | Engagers",
+          "adName": "UGC Testimonial - Old Hook",
+          "current": {
+            "spend": "INR 2,046",
+            "impressions": "61,740",
+            "clicks": "452",
+            "conversions": "6",
+            "ctr": "0.73%",
+            "cpc": "INR 4.53",
+            "cpa": "INR 341"
+          },
+          "previous": {
+            "spend": "INR 1,428",
+            "impressions": "52,460",
+            "clicks": "998",
+            "conversions": "24",
+            "ctr": "1.9%",
+            "cpc": "INR 1.43",
+            "cpa": "INR 59.5"
+          },
+          "deltas": {
+            "spend": "+43.3%",
+            "impressions": "+17.7%",
+            "clicks": "-54.7%",
+            "conversions": "-75%",
+            "ctr": "-61.6%",
+            "cpc": "+216.8%",
+            "cpa": "+473.1%"
+          }
+        },
+        {
+          "classification": "underperforming",
+          "score": 261.5,
+          "action": "Pause this ad or refresh its hook, visual, and primary text today.",
+          "reasons": [
+            "CTR dropped -51.5%.",
+            "CPC increased +99.3%.",
+            "CPA increased +190.7%.",
+            "Conversions fell -66.7%."
+          ],
+          "id": "23861234567890345|adset_bad_2|ad_bad_2",
+          "campaignId": "23861234567890345",
+          "campaignName": "Dehalt Campaign 1 | Retargeting | Leads",
+          "adsetName": "Website Visitors 14D",
+          "adName": "Static Offer - Limited Slots",
+          "current": {
+            "spend": "INR 1,153",
+            "impressions": "41,580",
+            "clicks": "394",
+            "conversions": "7",
+            "ctr": "0.95%",
+            "cpc": "INR 2.93",
+            "cpa": "INR 165"
+          },
+          "previous": {
+            "spend": "INR 1,190",
+            "impressions": "41,480",
+            "clicks": "812",
+            "conversions": "21",
+            "ctr": "1.96%",
+            "cpc": "INR 1.47",
+            "cpa": "INR 56.67"
+          },
+          "deltas": {
+            "spend": "-3.1%",
+            "impressions": "+0.2%",
+            "clicks": "-51.5%",
+            "conversions": "-66.7%",
+            "ctr": "-51.5%",
+            "cpc": "+99.3%",
+            "cpa": "+190.7%"
+          }
+        },
+        {
+          "classification": "underperforming",
+          "score": 108.8,
+          "action": "Pause this ad or refresh its hook, visual, and primary text today.",
+          "reasons": [
+            "CTR dropped -24.2%.",
+            "CPA increased +44.3%.",
+            "Conversions fell -53.8%."
+          ],
+          "id": "23861234567890345|adset_bad_3|ad_bad_3",
+          "campaignId": "23861234567890345",
+          "campaignName": "Dehalt Campaign 1 | Retargeting | Leads",
+          "adsetName": "Lookalike Leads 2%",
+          "adName": "Founder Video - Direct Pitch",
+          "current": {
+            "spend": "INR 521",
+            "impressions": "22,680",
+            "clicks": "313",
+            "conversions": "6",
+            "ctr": "1.38%",
+            "cpc": "INR 1.66",
+            "cpa": "INR 86.8"
+          },
+          "previous": {
+            "spend": "INR 782",
+            "impressions": "28,060",
+            "clicks": "510",
+            "conversions": "13",
+            "ctr": "1.82%",
+            "cpc": "INR 1.53",
+            "cpa": "INR 60.15"
+          },
+          "deltas": {
+            "spend": "-33.4%",
+            "impressions": "-19.2%",
+            "clicks": "-38.6%",
+            "conversions": "-53.8%",
+            "ctr": "-24.2%",
+            "cpc": "+8.5%",
+            "cpa": "+44.3%"
+          }
+        }
+      ]
+    }
+  },
+  "reportRun": null,
+  "signals": [],
+  "activities": [],
+  "emailSubject": "Action needed: Refresh UGC Testimonial - Old Hook in Dehalt Campaign 1 | Retargeting | Leads - 2026-06-11",
+  "emailHtml": "<!doctype html>\n<html>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <title>Action needed: Refresh UGC Testimonial - Old Hook in Dehalt Campaign 1 | Retargeting | Leads - 2026-06-11</title>\n  </head>\n  <body style=\"margin:0;padding:0;background:#e5e7eb;font-family:Inter,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,Arial,Helvetica,sans-serif;color:#111827;\">\n    <div style=\"display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;\">\n      Pause or reduce the weakest ad and launch 2-3 fresh creative variations. Start with &quot;UGC Testimonial - Old Hook&quot;.\n    </div>\n    <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"background:#e5e7eb;margin:0;padding:28px 0;\">\n      <tr>\n        <td align=\"center\" style=\"padding:0 12px;\">\n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:720px;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #d1d5db;box-shadow:0 16px 38px rgba(15,23,42,.13);\">\n            \n            \n    <tr>\n      <td style=\"padding:0;background:#0f172a;color:#ffffff;\">\n        <div style=\"height:6px;background:#e11d48;line-height:6px;font-size:6px;\">&nbsp;</div>\n        <div style=\"padding:24px 28px 22px;background:#0f172a;\">\n        <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td style=\"vertical-align:top;\">\n              <div style=\"font-size:12px;line-height:17px;color:#94a3b8;font-weight:800;text-transform:uppercase;letter-spacing:.08em;\">Sample report</div>\n              <div style=\"font-size:26px;line-height:32px;font-weight:800;margin-top:7px;color:#ffffff;\">Dehalt Campaign 1 | Retargeting | Leads</div>\n              <div style=\"font-size:14px;line-height:20px;color:#cbd5e1;margin-top:6px;\">2026-06-10 vs 2026-06-11</div>\n            </td>\n            <td align=\"right\" style=\"vertical-align:top;\">\n              <span style=\"display:inline-block;background:#e11d48;color:#ffffff;font-size:12px;line-height:18px;font-weight:800;padding:8px 12px;border-radius:999px;text-transform:uppercase;letter-spacing:.03em;\">Action needed</span>\n            </td>\n          </tr>\n        </table>\n        </div>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:22px 28px 18px;background:#ffffff;\">\n        \n    <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border:1px solid #fecdd3;border-top:3px solid #fb7185;border-radius:22px;background:#fff7f8;overflow:hidden;box-shadow:0 14px 32px rgba(15,23,42,.08);\">\n      <tr>\n        <td style=\"padding:20px 20px 18px;\">\n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n            <tr>\n              <td style=\"vertical-align:top;font-size:12px;line-height:18px;color:#64748b;font-weight:700;\">\n                2026-06-10 vs 2026-06-11\n              </td>\n              <td align=\"right\" style=\"vertical-align:top;\">\n                <span style=\"display:inline-block;background:#e11d48;color:#ffffff;font-size:12px;line-height:16px;font-weight:800;padding:7px 10px;border-radius:999px;\">Act today</span>\n                <span style=\"display:inline-block;margin-left:6px;background:#ffffff;border:1px solid #fecdd3;color:#9f1239;font-size:12px;line-height:16px;font-weight:800;padding:7px 10px;border-radius:999px;\">Creative Action</span>\n              </td>\n            </tr>\n          </table>\n          <div style=\"font-size:12px;line-height:18px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-top:15px;\">Sample report</div>\n          <div style=\"font-size:27px;line-height:33px;color:#0f172a;font-weight:800;margin-top:4px;\">Refresh the weakest creative</div>\n          <div style=\"font-size:15px;line-height:23px;color:#334155;font-weight:400;margin-top:8px;\">Engagement weakened first: CTR dropped 51.6%, CPC rose 118%, and conversions dropped 67.2%.</div>\n          \n            <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:15px;\">\n              <tr>\n                \n    <td style=\"width:33.33%;padding:0 8px 0 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fb7185;border-radius:15px;background:#fff1f2;padding:11px 12px;box-shadow:0 1px 0 rgba(15,23,42,.03);\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CTR</div>\n        <div style=\"font-size:16px;line-height:21px;color:#0f172a;font-weight:700;margin-top:3px;\">0.92%</div>\n        <div style=\"display:inline-block;margin-top:6px;border-radius:999px;background:#ffe4e6;color:#9f1239;padding:4px 7px;font-size:12px;line-height:14px;font-weight:800;\">-51.6%</div>\n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 0 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fb7185;border-radius:15px;background:#fff1f2;padding:11px 12px;box-shadow:0 1px 0 rgba(15,23,42,.03);\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CPC</div>\n        <div style=\"font-size:16px;line-height:21px;color:#0f172a;font-weight:700;margin-top:3px;\">INR 3.21</div>\n        <div style=\"display:inline-block;margin-top:6px;border-radius:999px;background:#ffe4e6;color:#9f1239;padding:4px 7px;font-size:12px;line-height:14px;font-weight:800;\">+118.4%</div>\n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 0 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fb7185;border-radius:15px;background:#fff1f2;padding:11px 12px;box-shadow:0 1px 0 rgba(15,23,42,.03);\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Conversions</div>\n        <div style=\"font-size:16px;line-height:21px;color:#0f172a;font-weight:700;margin-top:3px;\">19</div>\n        <div style=\"display:inline-block;margin-top:6px;border-radius:999px;background:#ffe4e6;color:#9f1239;padding:4px 7px;font-size:12px;line-height:14px;font-weight:800;\">-67.2%</div>\n      </div>\n    </td>\n                \n              </tr>\n            </table>\n          \n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:15px;\">\n            <tr>\n              <td style=\"padding:14px 15px;background:#ffffff;border:1px solid #fecdd3;border-top:2px solid #fb7185;border-radius:16px;box-shadow:0 6px 16px rgba(15,23,42,.06);\">\n                <div style=\"font-size:11px;line-height:15px;color:#9f1239;font-weight:800;text-transform:uppercase;letter-spacing:.06em;\">Do this now</div>\n                <div style=\"font-size:15px;line-height:22px;color:#0f172a;font-weight:800;margin-top:4px;\">Pause or reduce the weakest ad and launch 2-3 fresh creative variations. Start with &quot;UGC Testimonial - Old Hook&quot;.</div>\n              </td>\n            </tr>\n            <tr><td style=\"height:8px;font-size:8px;line-height:8px;\">&nbsp;</td></tr>\n            <tr>\n              <td style=\"padding:12px 14px;background:#fff1f2;border:1px solid #fecdd3;border-radius:15px;\">\n                <div style=\"font-size:11px;line-height:15px;color:#9f1239;font-weight:800;text-transform:uppercase;letter-spacing:.06em;\">Do not</div>\n                <div style=\"font-size:14px;line-height:21px;color:#7f1d1d;font-weight:500;margin-top:4px;\">Do not increase budget into the same tired creative.</div>\n              </td>\n            </tr>\n          </table>\n          <div style=\"margin-top:13px;\">\n            <span style=\"display:inline-block;margin:0 7px 7px 0;background:#ffffff;border:1px solid #fecdd3;border-radius:999px;padding:7px 10px;font-size:12px;line-height:15px;color:#0f172a;font-weight:700;\">Confidence: High</span><span style=\"display:inline-block;margin:0 7px 7px 0;background:#ffffff;border:1px solid #fecdd3;border-radius:999px;padding:7px 10px;font-size:12px;line-height:15px;color:#0f172a;font-weight:700;\">Severity: Critical</span><span style=\"display:inline-block;margin:0 7px 7px 0;background:#ffffff;border:1px solid #fecdd3;border-radius:999px;padding:7px 10px;font-size:12px;line-height:15px;color:#0f172a;font-weight:700;\">Est. risk: INR 2,606</span>\n          </div>\n        </td>\n      </tr>\n    </table>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:0 28px 20px;background:#ffffff;\">\n        <div style=\"border:1px solid #e2e8f0;border-radius:16px;background:#ffffff;overflow:hidden;\">\n          <div style=\"padding:14px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;\">\n            <div style=\"font-size:16px;line-height:22px;color:#0f172a;font-weight:800;\">Details / evidence</div>\n            <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:2px;\">Supporting signals behind the summary decision.</div>\n          </div>\n          <div style=\"padding:14px 16px 4px;\">\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Expanded metrics</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">Additional useful metrics beyond the summary card.</div>\n      \n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n        \n          <tr>\n            \n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fb7185;border-radius:12px;padding:12px;background:#fff1f2;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CPA</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">INR 196</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#ffe4e6;color:#9f1239;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">+234%</div>\n        \n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fb7185;border-radius:12px;padding:12px;background:#fff1f2;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Frequency</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">2.55</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#ffe4e6;color:#9f1239;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">+35.6%</div>\n        \n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fb7185;border-radius:12px;padding:12px;background:#fff1f2;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Clicks</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">1,159</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#ffe4e6;color:#9f1239;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">-50%</div>\n        \n      </div>\n    </td>\n            \n          </tr>\n        \n          <tr>\n            \n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#f8fafc;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Spend</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">INR 3,720</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#e2e8f0;color:#334155;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">+9.4%</div>\n        \n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fecdd3;border-radius:12px;padding:12px;background:#fff1f2;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CPM</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">INR 29.52</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#ffe4e6;color:#9f1239;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">+5.9%</div>\n        \n      </div>\n    </td>\n            <td style=\"width:33.33%;\"></td>\n          </tr>\n        \n      </table>\n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Evidence</div>\n      <div style=\"height:8px;font-size:8px;line-height:8px;\">&nbsp;</div>\n      \n      <div style=\"font-size:14px;line-height:22px;color:#0f172a;font-weight:700;margin-bottom:8px;\">Engagement weakened first: CTR dropped 51.6%, CPC rose 118%, and conversions dropped 67.2%.</div>\n      \n        <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;overflow:hidden;\">\n          \n            <tr>\n              <td width=\"96\" style=\"padding:11px 12px;vertical-align:top;\">\n                <span style=\"display:inline-block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:999px;padding:6px 8px;font-size:12px;line-height:15px;color:#0f172a;font-weight:800;\">CPA +234%</span>\n              </td>\n              <td style=\"padding:11px 12px 11px 0;vertical-align:middle;\">\n                <div style=\"font-size:13px;line-height:20px;color:#475569;\">Each lead or purchase became more expensive.</div>\n              </td>\n            </tr>\n          \n            <tr>\n              <td width=\"96\" style=\"padding:11px 12px;vertical-align:top;border-top:1px solid #e2e8f0;\">\n                <span style=\"display:inline-block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:999px;padding:6px 8px;font-size:12px;line-height:15px;color:#0f172a;font-weight:800;\">CPC +118.4%</span>\n              </td>\n              <td style=\"padding:11px 12px 11px 0;vertical-align:middle;border-top:1px solid #e2e8f0;\">\n                <div style=\"font-size:13px;line-height:20px;color:#475569;\">Each website visit or click became more expensive.</div>\n              </td>\n            </tr>\n          \n        </table>\n      \n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Creative contributor</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">The creative or ad most connected to the signal.</div>\n      \n      <div style=\"border:1px solid #fecdd3;border-radius:12px;background:#fff7f8;padding:12px 14px;\">\n        <div style=\"font-size:15px;line-height:22px;color:#0f172a;font-weight:800;\">UGC Testimonial - Old Hook</div>\n        <div style=\"font-size:13px;line-height:20px;color:#475569;margin-top:4px;\">CTR dropped -61.6%.</div>\n        <div style=\"font-size:13px;line-height:20px;color:#0f172a;margin-top:8px;\"><b>Recommended action:</b> Pause this ad or refresh its hook, visual, and primary text today.</div>\n        \n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:8px;\">\n            \n              <tr>\n                <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#e11d48;vertical-align:top;\">&bull;</td>\n                <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">CTR dropped -61.6%.</td>\n              </tr>\n            \n              <tr>\n                <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#e11d48;vertical-align:top;\">&bull;</td>\n                <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">CPC increased +216.8%.</td>\n              </tr>\n            \n          </table>\n        \n      </div>\n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Next actions</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">The shortest useful sequence.</div>\n      \n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-bottom:8px;border:1px solid #fecdd3;border-radius:12px;background:#fff7f8;\">\n        <tr>\n          <td width=\"42\" style=\"padding:10px 0 10px 12px;vertical-align:top;\">\n            <div style=\"width:26px;height:26px;border-radius:999px;background:#e11d48;color:#ffffff;text-align:center;font-size:13px;line-height:26px;font-weight:800;\">1</div>\n          </td>\n          <td style=\"padding:10px 12px 10px 4px;font-size:14px;line-height:21px;color:#0f172a;font-weight:800;\">Open UGC Testimonial - Old Hook in Meta Ads Manager.</td>\n        </tr>\n      </table>\n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-bottom:8px;border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;\">\n        <tr>\n          <td width=\"42\" style=\"padding:10px 0 10px 12px;vertical-align:top;\">\n            <div style=\"width:26px;height:26px;border-radius:999px;background:#e2e8f0;color:#334155;text-align:center;font-size:13px;line-height:26px;font-weight:800;\">2</div>\n          </td>\n          <td style=\"padding:10px 12px 10px 4px;font-size:14px;line-height:21px;color:#0f172a;font-weight:500;\">Pause it or reduce its spend.</td>\n        </tr>\n      </table>\n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-bottom:8px;border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;\">\n        <tr>\n          <td width=\"42\" style=\"padding:10px 0 10px 12px;vertical-align:top;\">\n            <div style=\"width:26px;height:26px;border-radius:999px;background:#e2e8f0;color:#334155;text-align:center;font-size:13px;line-height:26px;font-weight:800;\">3</div>\n          </td>\n          <td style=\"padding:10px 12px 10px 4px;font-size:14px;line-height:21px;color:#0f172a;font-weight:500;\">Launch 2-3 new versions with a different hook, visual, and first line.</td>\n        </tr>\n      </table>\n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Watch next</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">Timeframe: Next 48-72 hours</div>\n      \n      <div style=\"margin-bottom:9px;\"><span style=\"display:inline-block;background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;border-radius:999px;padding:6px 9px;margin:0 5px 5px 0;font-size:12px;line-height:15px;font-weight:700;\">CTR</span><span style=\"display:inline-block;background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;border-radius:999px;padding:6px 9px;margin:0 5px 5px 0;font-size:12px;line-height:15px;font-weight:700;\">CPC</span><span style=\"display:inline-block;background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;border-radius:999px;padding:6px 9px;margin:0 5px 5px 0;font-size:12px;line-height:15px;font-weight:700;\">Frequency</span></div>\n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n        <tr><td style=\"padding:10px 12px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;font-size:13px;line-height:20px;color:#064e3b;\"><b>Good:</b> CTR should recover first, followed by CPC normalization within 48-72 hours.</td></tr>\n        <tr><td style=\"height:7px;font-size:7px;line-height:7px;\">&nbsp;</td></tr>\n        <tr><td style=\"padding:10px 12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;font-size:13px;line-height:20px;color:#9a3412;\"><b>Bad:</b> The same issue gets worse in the next daily report.</td></tr>\n      </table>\n    </div>\n          </div>\n        </div>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:0 28px 24px;background:#ffffff;\">\n        <div style=\"border:1px solid #e2e8f0;border-radius:16px;background:#f8fafc;padding:14px 16px;\">\n          <div style=\"font-size:16px;line-height:22px;color:#0f172a;font-weight:800;\">Diagnostics</div>\n          <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:2px;\">Reliability and data notes behind this recommendation.</div>\n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:12px;\">\n            <tr>\n              <td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Data confidence:</b> Strong</td>\n            </tr>\n            <tr>\n              <td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Reliability:</b> High - The recommendation is supported by enough delivery volume and usable metric data.</td>\n            </tr>\n            <tr><td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Data score:</b> 95/100+</td></tr>\n            <tr>\n              <td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Baseline:</b> Compared against a 5-day baseline before 2026-06-11.</td>\n            </tr>\n            \n          </table>\n          \n            <div style=\"font-size:13px;line-height:20px;color:#475569;margin-top:6px;\"><b>Filtered or unreliable metrics:</b></div>\n            <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:4px;\">\n              \n                <tr>\n                  <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#64748b;vertical-align:top;\">&bull;</td>\n                  <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\"><b>ROAS:</b> No usable value was present for this metric in either compared period.</td>\n                </tr>\n              \n            </table>\n          \n          \n            <div style=\"font-size:13px;line-height:20px;color:#475569;margin-top:8px;\"><b>Diagnostic checks:</b></div>\n            <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:4px;\">\n              \n                <tr>\n                  <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#64748b;vertical-align:top;\">&bull;</td>\n                  <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">Compare CTR and CPC by creative ID for the last 3-7 days.</td>\n                </tr>\n              \n                <tr>\n                  <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#64748b;vertical-align:top;\">&bull;</td>\n                  <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">Check frequency and first-time impression ratio by ad set.</td>\n                </tr>\n              \n                <tr>\n                  <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#64748b;vertical-align:top;\">&bull;</td>\n                  <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">Confirm no winning creative was paused or rejected.</td>\n                </tr>\n              \n            </table>\n          \n        </div>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:20px 28px;background:#0f172a;border-top:1px solid #1e293b;\">\n        <div style=\"font-size:12px;line-height:18px;color:#cbd5e1;\">\n          Generated by Narrative on 13/6/2026, 12:35:57 am. This report is based on Meta Ads data available at send time.\n        </div>\n      </td>\n    </tr>\n          </table>\n        </td>\n      </tr>\n    </table>\n  </body>\n</html>",
+  "comparison": {
+    "mode": "mock_daily_rows",
+    "period": {
+      "current": "2026-06-11",
+      "previous": "2026-06-10"
+    },
+    "rowCount": 18
+  }
+}

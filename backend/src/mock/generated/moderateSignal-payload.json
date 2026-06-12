@@ -1,0 +1,1181 @@
+{
+  "mock": true,
+  "scenarioKey": "moderateSignal",
+  "reportId": "mock-moderateSignal",
+  "reportName": "Moderate signal / review today",
+  "agencyId": "mock-agency",
+  "clientId": "mock-client",
+  "recipients": [],
+  "email": null,
+  "adAccountId": "act_9876543210",
+  "adAccountName": "Mock Meta Ad Account",
+  "narrative": {
+    "status": "ok",
+    "engineVersion": "1.0.0",
+    "analysisType": "daily_comparison",
+    "guidanceCoverage": {
+      "mode": "archetype_and_metric_specific_playbooks",
+      "supportedMetrics": [
+        "spend",
+        "impressions",
+        "reach",
+        "frequency",
+        "clicks",
+        "ctr",
+        "cpc",
+        "cpm",
+        "conversions",
+        "roas",
+        "cpa",
+        "conversionRate"
+      ]
+    },
+    "executiveSummary": "Auction Pressure: performance weakened versus 2026-06-10. Spend +22%, CPC +36.7%, Conversions -6.4%. Avoid scaling this campaign today; test lower-cost audiences or placements before adding budget. Estimated impact: INR 655.",
+    "userInsight": {
+      "headline": "Auction costs increased today.",
+      "plainSummary": "Compared with 2026-06-10, 2026-06-11 looks worse. Media costs increased while engagement did not collapse, pointing to more expensive auction conditions. Estimated negative impact is around INR 655.",
+      "decisionBrief": {
+        "decision": "avoid_expensive_auction",
+        "label": "Avoid scaling into expensive auctions",
+        "decisionType": {
+          "id": "budget_action",
+          "label": "Budget Action",
+          "description": "The recommendation is to control budget pressure until efficiency stabilizes."
+        },
+        "urgency": "act_today",
+        "timeframe": "Today",
+        "primaryAction": "Hold budget and compare CPM by placement, audience, and geography. Start with \"Offer Static - 7 Day Pass\".",
+        "secondaryAction": "Move small test budget toward lower-cost segments only if lead quality holds.",
+        "doNotDo": "Do not increase budget until the primary efficiency signal stabilizes.",
+        "plainReason": "Buying attention became more expensive even though engagement did not collapse.",
+        "expectedResult": "CPM should fall before CPC improves materially.",
+        "ifNoImprovement": "If CPM stays high, shift testing to cheaper placements or broader audiences.",
+        "owner": "Media buyer",
+        "impact": "INR 655 estimated risk",
+        "confidence": "High",
+        "mainMetric": {
+          "label": "CPC",
+          "change": "+36.7%",
+          "plainChange": "became more expensive by 36.7%"
+        },
+        "comparedWith": "2026-06-10",
+        "currentDate": "2026-06-11",
+        "actionChecklist": [
+          "Stop any planned budget increase today.",
+          "Compare CPM by placement, audience, and location.",
+          "Hold budget on expensive segments.",
+          "Test cheaper segments with small budget only."
+        ]
+      },
+      "trust": {
+        "level": "high",
+        "score": 100,
+        "summary": "The recommendation is supported by enough delivery volume and usable metric data.",
+        "caveats": [],
+        "filteredSignals": [
+          {
+            "metric": "ROAS",
+            "reason": "No usable value was present for this metric in either compared period."
+          }
+        ],
+        "baseline": {
+          "level": "strong",
+          "available": true,
+          "comparedDays": 5,
+          "requiredDays": 4,
+          "summary": "Compared against a 5-day baseline before 2026-06-11."
+        }
+      },
+      "trustGate": {
+        "level": "high",
+        "actionability": "act_today",
+        "blocked": false,
+        "reasons": [],
+        "caveats": [],
+        "flags": {
+          "dataWindowMismatch": false,
+          "lowSpend": false,
+          "lowClicks": false,
+          "noConversions": false,
+          "noBaseline": false,
+          "noAdLevelData": false
+        },
+        "severityCap": null,
+        "decisionTypeOverride": null,
+        "primaryActionOverride": null
+      },
+      "decisionType": {
+        "id": "budget_action",
+        "label": "Budget Action",
+        "description": "The recommendation is to control budget pressure until efficiency stabilizes."
+      },
+      "topContributor": {
+        "available": true,
+        "level": "ad",
+        "name": "Offer Static - 7 Day Pass",
+        "contributionSummary": "CPC increased +64%.",
+        "recommendedAction": "Avoid scaling this ad today; test lower-cost placements or audiences.",
+        "evidence": [
+          "CPC increased +64%.",
+          "CPA increased +56.2%.",
+          "Spend increased +46.4% without conversion growth."
+        ],
+        "metrics": {
+          "current": {
+            "spend": "INR 1,025",
+            "impressions": "30,895",
+            "clicks": "450",
+            "conversions": "15",
+            "ctr": "1.46%",
+            "cpc": "INR 2.28",
+            "cpa": "INR 68.32"
+          },
+          "previous": {
+            "spend": "INR 700",
+            "impressions": "30,600",
+            "clicks": "504",
+            "conversions": "16",
+            "ctr": "1.65%",
+            "cpc": "INR 1.39",
+            "cpa": "INR 43.75"
+          },
+          "deltas": {
+            "spend": "+46.4%",
+            "impressions": "+1%",
+            "clicks": "-10.7%",
+            "conversions": "-6.2%",
+            "ctr": "-11.5%",
+            "cpc": "+64%",
+            "cpa": "+56.2%"
+          }
+        }
+      },
+      "reportGoalAssessment": {
+        "available": true,
+        "objective": "leads",
+        "primaryKpi": "CPL",
+        "targetSummary": "CPL target: below INR 55",
+        "assessment": "CPL is currently INR 55.45 (+30.3%)."
+      },
+      "whatHappened": [
+        "CPC became more expensive by 36.7%.",
+        "Spend increased by 22%."
+      ],
+      "simpleDiagnosis": {
+        "title": "Auction Pressure",
+        "inPlainEnglish": "Buying attention became more expensive even though engagement did not collapse. CPC became more expensive by 36.7%.",
+        "evidence": [
+          "CPC became more expensive by 36.7%.",
+          "Spend increased by 22%."
+        ]
+      },
+      "plainEnglishEvidence": [
+        {
+          "metric": "CPC",
+          "change": "+36.7%",
+          "meaning": "Each website visit or click became more expensive."
+        },
+        {
+          "metric": "CPA",
+          "change": "+30.3%",
+          "meaning": "Each lead or purchase became more expensive."
+        },
+        {
+          "metric": "CPM",
+          "change": "+31.5%",
+          "meaning": "Reaching people became more expensive."
+        }
+      ],
+      "whyItMatters": "This matters because the issue may have cost about INR 655 in wasted spend or lost efficiency.",
+      "adToFixFirst": {
+        "classification": "underperforming",
+        "score": 124.8,
+        "action": "Avoid scaling this ad today; test lower-cost placements or audiences.",
+        "reasons": [
+          "CPC increased +64%.",
+          "CPA increased +56.2%.",
+          "Spend increased +46.4% without conversion growth."
+        ],
+        "id": "23861234567890234|adset_mod_1|ad_mod_1",
+        "campaignId": "23861234567890234",
+        "campaignName": "NovaFit Gym | Lead Gen | Trial Pass",
+        "adsetName": "Local Radius 5km | 18-35",
+        "adName": "Offer Static - 7 Day Pass",
+        "current": {
+          "spend": "INR 1,025",
+          "impressions": "30,895",
+          "clicks": "450",
+          "conversions": "15",
+          "ctr": "1.46%",
+          "cpc": "INR 2.28",
+          "cpa": "INR 68.32"
+        },
+        "previous": {
+          "spend": "INR 700",
+          "impressions": "30,600",
+          "clicks": "504",
+          "conversions": "16",
+          "ctr": "1.65%",
+          "cpc": "INR 1.39",
+          "cpa": "INR 43.75"
+        },
+        "deltas": {
+          "spend": "+46.4%",
+          "impressions": "+1%",
+          "clicks": "-10.7%",
+          "conversions": "-6.2%",
+          "ctr": "-11.5%",
+          "cpc": "+64%",
+          "cpa": "+56.2%"
+        }
+      },
+      "adToProtect": null,
+      "adsToWatch": [],
+      "whatToDoNext": [
+        "Do not increase budget today.",
+        "Avoid scaling this ad today; test lower-cost placements or audiences. Focus on \"Offer Static - 7 Day Pass\" first.",
+        "Avoid scaling today.",
+        "Check CPM by placement and audience."
+      ],
+      "watchNext": {
+        "timeframe": "Next 48-72 hours",
+        "metrics": [
+          "CPM",
+          "CPC",
+          "CTR"
+        ],
+        "goodSign": "CPM should fall before CPC improves materially.",
+        "badSign": "The same issue gets worse in the next daily report."
+      },
+      "confidence": "High",
+      "urgency": "act_today"
+    },
+    "campaign": {
+      "id": "23861234567890234",
+      "name": "NovaFit Gym | Lead Gen | Trial Pass"
+    },
+    "period": {
+      "current": "2026-06-11",
+      "previous": "2026-06-10"
+    },
+    "dataQuality": {
+      "level": "strong",
+      "inputRows": 18,
+      "datedRows": 18,
+      "aggregatedDailyRows": 6,
+      "comparedRows": 2,
+      "minimumSpendForInsight": 1,
+      "minimumImpressionsForInsight": 100,
+      "warnings": []
+    },
+    "trustLayer": {
+      "level": "high",
+      "score": 100,
+      "reasons": [
+        "The recommendation is supported by enough delivery volume and usable metric data.",
+        "Compared against a 5-day baseline before 2026-06-11.",
+        "The movement is large enough to treat as a meaningful signal."
+      ],
+      "warnings": [],
+      "minimumThresholds": {
+        "spend": {
+          "passed": true,
+          "current": 2440,
+          "previous": 2000,
+          "required": 1
+        },
+        "impressions": {
+          "passed": true,
+          "current": 83500,
+          "previous": 90000,
+          "required": 100
+        },
+        "clicks": {
+          "passed": true,
+          "total": 2725,
+          "required": 20
+        },
+        "conversions": {
+          "passed": true,
+          "total": 91,
+          "required": 3
+        },
+        "totalSpend": 4440,
+        "totalImpressions": 173500
+      },
+      "metricReliability": {
+        "spend": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "impressions": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "reach": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "frequency": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "clicks": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "ctr": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "cpc": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "cpm": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "conversions": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "roas": {
+          "level": "unusable",
+          "usable": false,
+          "scoreMultiplier": 0,
+          "reasons": [
+            "No usable value was present for this metric in either compared period.",
+            "ROAS cannot be compared because purchase value or ROAS data was not available."
+          ]
+        },
+        "cpa": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        },
+        "conversionRate": {
+          "level": "high",
+          "usable": true,
+          "scoreMultiplier": 1,
+          "reasons": []
+        }
+      },
+      "reliabilityFilters": [
+        {
+          "metric": "roas",
+          "label": "ROAS",
+          "level": "unusable",
+          "usable": false,
+          "reasons": [
+            "No usable value was present for this metric in either compared period.",
+            "ROAS cannot be compared because purchase value or ROAS data was not available."
+          ]
+        }
+      ],
+      "baseline": {
+        "level": "strong",
+        "available": true,
+        "comparedDays": 5,
+        "requiredDays": 4,
+        "summary": "Compared against a 5-day baseline before 2026-06-11."
+      },
+      "rowCoverage": {
+        "inputRows": 18,
+        "filteredRows": 18,
+        "aggregatedDailyRows": 6
+      }
+    },
+    "trustGate": {
+      "level": "high",
+      "actionability": "act_today",
+      "blocked": false,
+      "reasons": [],
+      "caveats": [],
+      "flags": {
+        "dataWindowMismatch": false,
+        "lowSpend": false,
+        "lowClicks": false,
+        "noConversions": false,
+        "noBaseline": false,
+        "noAdLevelData": false
+      },
+      "severityCap": null,
+      "decisionTypeOverride": null,
+      "primaryActionOverride": null
+    },
+    "baselineComparison": {
+      "available": true,
+      "level": "strong",
+      "comparedDays": 5,
+      "requiredDays": 4,
+      "lookbackDays": 7,
+      "baseline": {
+        "spend": 1900,
+        "impressions": 85600,
+        "reach": 72600,
+        "clicks": 1363,
+        "conversions": 45.8,
+        "roas": 0,
+        "frequency": 1.18,
+        "ctr": 1.59,
+        "cpc": 1.39,
+        "cpm": 22.2,
+        "cpa": 41.48,
+        "conversionRate": 3.36
+      },
+      "deltas": {
+        "spend": 28.42,
+        "impressions": -2.45,
+        "reach": -2.75,
+        "frequency": 0,
+        "clicks": -5.72,
+        "ctr": -3.14,
+        "cpc": 36.69,
+        "cpm": 31.62,
+        "conversions": -3.93,
+        "roas": 0,
+        "cpa": 33.68,
+        "conversionRate": 1.79
+      },
+      "findings": [
+        {
+          "metric": "cpc",
+          "label": "CPC",
+          "current": 1.9,
+          "baseline": 1.39,
+          "delta": 36.7,
+          "direction": "bad"
+        },
+        {
+          "metric": "cpa",
+          "label": "CPA",
+          "current": 55.45,
+          "baseline": 41.48,
+          "delta": 33.7,
+          "direction": "bad"
+        },
+        {
+          "metric": "cpm",
+          "label": "CPM",
+          "current": 29.22,
+          "baseline": 22.2,
+          "delta": 31.6,
+          "direction": "bad"
+        },
+        {
+          "metric": "spend",
+          "label": "Spend",
+          "current": 2440,
+          "baseline": 1900,
+          "delta": 28.4,
+          "direction": "bad"
+        },
+        {
+          "metric": "clicks",
+          "label": "Clicks",
+          "current": 1285,
+          "baseline": 1363,
+          "delta": -5.7,
+          "direction": "bad"
+        }
+      ],
+      "summary": "Compared against a 5-day baseline before 2026-06-11."
+    },
+    "decisionType": {
+      "id": "budget_action",
+      "label": "Budget Action",
+      "description": "The recommendation is to control budget pressure until efficiency stabilizes."
+    },
+    "topContributor": {
+      "available": true,
+      "level": "ad",
+      "name": "Offer Static - 7 Day Pass",
+      "contributionSummary": "CPC increased +64%.",
+      "recommendedAction": "Avoid scaling this ad today; test lower-cost placements or audiences.",
+      "evidence": [
+        "CPC increased +64%.",
+        "CPA increased +56.2%.",
+        "Spend increased +46.4% without conversion growth."
+      ],
+      "metrics": {
+        "current": {
+          "spend": "INR 1,025",
+          "impressions": "30,895",
+          "clicks": "450",
+          "conversions": "15",
+          "ctr": "1.46%",
+          "cpc": "INR 2.28",
+          "cpa": "INR 68.32"
+        },
+        "previous": {
+          "spend": "INR 700",
+          "impressions": "30,600",
+          "clicks": "504",
+          "conversions": "16",
+          "ctr": "1.65%",
+          "cpc": "INR 1.39",
+          "cpa": "INR 43.75"
+        },
+        "deltas": {
+          "spend": "+46.4%",
+          "impressions": "+1%",
+          "clicks": "-10.7%",
+          "conversions": "-6.2%",
+          "ctr": "-11.5%",
+          "cpc": "+64%",
+          "cpa": "+56.2%"
+        }
+      }
+    },
+    "followUp": {
+      "available": false,
+      "previousDecision": null,
+      "status": "inconclusive",
+      "summary": "",
+      "escalation": null
+    },
+    "displayMetrics": {
+      "spend": {
+        "label": "Spend",
+        "value": "INR 2,440",
+        "previousValue": "INR 2,000",
+        "delta": "+22%",
+        "deltaValue": 22,
+        "available": true,
+        "reason": null
+      },
+      "impressions": {
+        "label": "Impressions",
+        "value": "83,500",
+        "previousValue": "90,000",
+        "delta": "-7.2%",
+        "deltaValue": -7.2,
+        "available": true,
+        "reason": null
+      },
+      "reach": {
+        "label": "Reach",
+        "value": "70,600",
+        "previousValue": "76,000",
+        "delta": "-7.1%",
+        "deltaValue": -7.1,
+        "available": true,
+        "reason": null
+      },
+      "frequency": {
+        "label": "Frequency",
+        "value": "1.18",
+        "previousValue": "1.18",
+        "delta": "0%",
+        "deltaValue": 0,
+        "available": true,
+        "reason": null
+      },
+      "clicks": {
+        "label": "Clicks",
+        "value": "1,285",
+        "previousValue": "1,440",
+        "delta": "-10.8%",
+        "deltaValue": -10.8,
+        "available": true,
+        "reason": null
+      },
+      "ctr": {
+        "label": "CTR",
+        "value": "1.54%",
+        "previousValue": "1.6%",
+        "delta": "-3.7%",
+        "deltaValue": -3.7,
+        "available": true,
+        "reason": null
+      },
+      "cpc": {
+        "label": "CPC",
+        "value": "INR 1.9",
+        "previousValue": "INR 1.39",
+        "delta": "+36.7%",
+        "deltaValue": 36.7,
+        "available": true,
+        "reason": null
+      },
+      "cpm": {
+        "label": "CPM",
+        "value": "INR 29.22",
+        "previousValue": "INR 22.22",
+        "delta": "+31.5%",
+        "deltaValue": 31.5,
+        "available": true,
+        "reason": null
+      },
+      "conversions": {
+        "label": "Conversions",
+        "value": "44",
+        "previousValue": "47",
+        "delta": "-6.4%",
+        "deltaValue": -6.4,
+        "available": true,
+        "reason": null
+      },
+      "roas": {
+        "label": "ROAS",
+        "value": "N/A",
+        "previousValue": "N/A",
+        "delta": null,
+        "deltaValue": null,
+        "available": false,
+        "reason": "No purchase value or ROAS was available."
+      },
+      "cpa": {
+        "label": "CPA",
+        "value": "INR 55.45",
+        "previousValue": "INR 42.55",
+        "delta": "+30.3%",
+        "deltaValue": 30.3,
+        "available": true,
+        "reason": null
+      },
+      "conversionRate": {
+        "label": "Conversion rate",
+        "value": "3.42%",
+        "previousValue": "3.26%",
+        "delta": "+4.9%",
+        "deltaValue": 4.9,
+        "available": true,
+        "reason": null
+      }
+    },
+    "reportGoalAssessment": {
+      "available": true,
+      "objective": "leads",
+      "primaryKpi": "CPL",
+      "targetSummary": "CPL target: below INR 55",
+      "assessment": "CPL is currently INR 55.45 (+30.3%)."
+    },
+    "snapshot": {
+      "spend": "INR 2,440 (+22%)",
+      "impressions": "83,500 (-7.2%)",
+      "clicks": "1,285 (-10.8%)",
+      "ctr": "1.54% (-3.7%)",
+      "cpc": "INR 1.9 (+36.7%)",
+      "conversions": "44 (-6.4%)",
+      "roas": {
+        "value": "N/A",
+        "available": false,
+        "reason": "No purchase value or ROAS was available."
+      },
+      "cpa": "INR 55.45 (+30.3%)",
+      "frequency": "1.18 (0%)",
+      "cpm": "INR 29.22 (+31.5%)"
+    },
+    "keyDelta": "Material cpc movement (CPC +36.7%)",
+    "likelyCause": {
+      "id": "auction_pressure",
+      "archetype": "Auction Pressure",
+      "confidence": {
+        "level": "High",
+        "score": 24
+      },
+      "summary": "Media costs increased while engagement did not collapse, pointing to more expensive auction conditions.",
+      "evidence": [
+        "CPM +31.5% (29.22 vs 22.22)",
+        "CPC +36.7% (1.9 vs 1.39)",
+        "CTR -3.7% (1.54% vs 1.6%)",
+        "Impressions -7.2% (83,500 vs 90,000)"
+      ]
+    },
+    "financialImpact": {
+      "type": "negative",
+      "amount": 655.35,
+      "currency": "INR",
+      "summary": "Estimated efficiency loss of INR 655 from reduced conversion output or higher traffic cost.",
+      "method": "max(lost conversions at previous CPA, extra CPA cost on current conversions, extra CPC cost on current clicks)",
+      "displayAmount": "INR 655",
+      "shouldDisplayAmount": true,
+      "percentOfSpend": 14.8,
+      "caveats": []
+    },
+    "decision": "Avoid scaling this campaign today; test lower-cost audiences or placements before adding budget.",
+    "recommendations": [
+      {
+        "priority": "P1",
+        "urgency": "high",
+        "title": "Act on the primary signal",
+        "action": "Avoid scaling this campaign today; test lower-cost audiences or placements before adding budget.",
+        "reason": "Media costs increased while engagement did not collapse, pointing to more expensive auction conditions."
+      },
+      {
+        "priority": "P2",
+        "urgency": "medium",
+        "title": "Validate cpc",
+        "action": "Compare cpc by campaign, ad set, ad, placement, and age/gender split before making broad budget changes.",
+        "reason": "CPC moved +36.7%, making it the strongest measurable signal."
+      },
+      {
+        "priority": "P3",
+        "urgency": "medium",
+        "title": "Check post-click health",
+        "action": "Review landing page speed, form completion, checkout errors, tracking events, and recent offer changes.",
+        "reason": "Conversion efficiency changed enough that the issue may be outside Meta delivery."
+      }
+    ],
+    "diagnosticChecks": [
+      "Compare CPM by placement and audience.",
+      "Check competitor-heavy sale periods, holidays, or campaign launches.",
+      "Shift test budget into lower-cost placements only if quality holds."
+    ],
+    "monitoringPlan": {
+      "window": "next_48_to_72_hours",
+      "cadence": "check_every_12_hours",
+      "watchMetrics": [
+        "CPC",
+        "CPA",
+        "CPM"
+      ],
+      "successSignal": "CPM should fall before CPC improves materially.",
+      "rollbackSignal": "The same anomaly worsens in the next completed daily comparison."
+    },
+    "guardrails": [
+      {
+        "metric": "spend",
+        "rule": "Avoid increasing budget until the primary anomaly stabilizes.",
+        "current": "INR 2,440",
+        "previous": "INR 2,000",
+        "delta": "+22%"
+      },
+      {
+        "metric": "cpa",
+        "rule": "Use previous CPA as the first rollback benchmark.",
+        "current": "INR 55.45",
+        "previous": "INR 42.55",
+        "delta": "+30.3%"
+      },
+      {
+        "metric": "ctr",
+        "rule": "Treat further CTR decline as evidence that creative or audience fit is weakening.",
+        "current": "1.54%",
+        "previous": "1.6%",
+        "delta": "-3.7%"
+      }
+    ],
+    "nextSignal": "CPM should fall before CPC improves materially.",
+    "severity": {
+      "level": "critical",
+      "score": 149
+    },
+    "metrics": {
+      "current": {
+        "date": "2026-06-11",
+        "campaignId": "23861234567890234",
+        "campaignName": "NovaFit Gym | Lead Gen | Trial Pass",
+        "spend": 2440,
+        "impressions": 83500,
+        "reach": 70600,
+        "frequency": 1.18,
+        "clicks": 1285,
+        "ctr": 1.54,
+        "cpc": 1.9,
+        "cpm": 29.22,
+        "conversions": 44,
+        "roas": 0,
+        "cpa": 55.45,
+        "conversionRate": 3.42
+      },
+      "previous": {
+        "date": "2026-06-10",
+        "campaignId": "23861234567890234",
+        "campaignName": "NovaFit Gym | Lead Gen | Trial Pass",
+        "spend": 2000,
+        "impressions": 90000,
+        "reach": 76000,
+        "frequency": 1.18,
+        "clicks": 1440,
+        "ctr": 1.6,
+        "cpc": 1.39,
+        "cpm": 22.22,
+        "conversions": 47,
+        "roas": 0,
+        "cpa": 42.55,
+        "conversionRate": 3.26
+      },
+      "deltas": {
+        "spend": 22,
+        "impressions": -7.22,
+        "reach": -7.11,
+        "frequency": 0,
+        "clicks": -10.76,
+        "ctr": -3.75,
+        "cpc": 36.69,
+        "cpm": 31.5,
+        "conversions": -6.38,
+        "roas": 0,
+        "cpa": 30.32,
+        "conversionRate": 4.91
+      }
+    },
+    "rankedAnomalies": [
+      {
+        "metric": "cpc",
+        "label": "CPC",
+        "current": 1.9,
+        "previous": 1.39,
+        "delta": 36.7,
+        "direction": "bad",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 42.9
+      },
+      {
+        "metric": "cpa",
+        "label": "CPA",
+        "current": 55.45,
+        "previous": 42.55,
+        "delta": 30.3,
+        "direction": "bad",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 39.4
+      },
+      {
+        "metric": "cpm",
+        "label": "CPM",
+        "current": 29.22,
+        "previous": 22.22,
+        "delta": 31.5,
+        "direction": "bad",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 28.7
+      },
+      {
+        "metric": "spend",
+        "label": "Spend",
+        "current": 2440,
+        "previous": 2000,
+        "delta": 22,
+        "direction": "bad",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 11.4
+      },
+      {
+        "metric": "clicks",
+        "label": "Clicks",
+        "current": 1285,
+        "previous": 1440,
+        "delta": -10.8,
+        "direction": "bad",
+        "reliability": "high",
+        "reliabilityReasons": [],
+        "usable": true,
+        "score": 11.2
+      }
+    ],
+    "segmentContributors": [
+      {
+        "id": "23861234567890234|adset_mod_1|ad_mod_1",
+        "campaignId": "23861234567890234",
+        "campaignName": "NovaFit Gym | Lead Gen | Trial Pass",
+        "adsetName": "Local Radius 5km | 18-35",
+        "adName": "Offer Static - 7 Day Pass",
+        "current": {
+          "spend": 1024.8,
+          "impressions": 30895,
+          "clicks": 450,
+          "conversions": 15,
+          "ctr": 1.46,
+          "cpc": 2.28,
+          "cpa": 68.32
+        },
+        "previous": {
+          "spend": 700,
+          "impressions": 30600,
+          "clicks": 504,
+          "conversions": 16,
+          "ctr": 1.65,
+          "cpc": 1.39,
+          "cpa": 43.75
+        },
+        "deltas": {
+          "spend": 324.8,
+          "impressions": 295,
+          "clicks": -54,
+          "conversions": -1
+        },
+        "contributionScore": 506.8
+      },
+      {
+        "id": "23861234567890234|adset_mod_2|ad_mod_2",
+        "campaignId": "23861234567890234",
+        "campaignName": "NovaFit Gym | Lead Gen | Trial Pass",
+        "adsetName": "Fitness Interests | 21-45",
+        "adName": "Trainer Reel - Weight Loss",
+        "current": {
+          "spend": 878.4,
+          "impressions": 31730,
+          "clicks": 475,
+          "conversions": 17,
+          "ctr": 1.5,
+          "cpc": 1.85,
+          "cpa": 51.67
+        },
+        "previous": {
+          "spend": 740,
+          "impressions": 34200,
+          "clicks": 518,
+          "conversions": 18,
+          "ctr": 1.51,
+          "cpc": 1.43,
+          "cpa": 41.11
+        },
+        "deltas": {
+          "spend": 138.4,
+          "impressions": -2470,
+          "clicks": -43,
+          "conversions": -1
+        },
+        "contributionScore": 287.4
+      },
+      {
+        "id": "23861234567890234|adset_mod_3|ad_mod_3",
+        "campaignId": "23861234567890234",
+        "campaignName": "NovaFit Gym | Lead Gen | Trial Pass",
+        "adsetName": "Lookalike Leads 1%",
+        "adName": "Carousel - Gym Tour",
+        "current": {
+          "spend": 536.8,
+          "impressions": 20875,
+          "clicks": 360,
+          "conversions": 12,
+          "ctr": 1.72,
+          "cpc": 1.49,
+          "cpa": 44.73
+        },
+        "previous": {
+          "spend": 560,
+          "impressions": 25200,
+          "clicks": 418,
+          "conversions": 13,
+          "ctr": 1.66,
+          "cpc": 1.34,
+          "cpa": 43.08
+        },
+        "deltas": {
+          "spend": -23.2,
+          "impressions": -4325,
+          "clicks": -58,
+          "conversions": -1
+        },
+        "contributionScore": 217.2
+      }
+    ],
+    "adDiagnostics": {
+      "fixFirst": {
+        "classification": "underperforming",
+        "score": 124.8,
+        "action": "Avoid scaling this ad today; test lower-cost placements or audiences.",
+        "reasons": [
+          "CPC increased +64%.",
+          "CPA increased +56.2%.",
+          "Spend increased +46.4% without conversion growth."
+        ],
+        "id": "23861234567890234|adset_mod_1|ad_mod_1",
+        "campaignId": "23861234567890234",
+        "campaignName": "NovaFit Gym | Lead Gen | Trial Pass",
+        "adsetName": "Local Radius 5km | 18-35",
+        "adName": "Offer Static - 7 Day Pass",
+        "current": {
+          "spend": "INR 1,025",
+          "impressions": "30,895",
+          "clicks": "450",
+          "conversions": "15",
+          "ctr": "1.46%",
+          "cpc": "INR 2.28",
+          "cpa": "INR 68.32"
+        },
+        "previous": {
+          "spend": "INR 700",
+          "impressions": "30,600",
+          "clicks": "504",
+          "conversions": "16",
+          "ctr": "1.65%",
+          "cpc": "INR 1.39",
+          "cpa": "INR 43.75"
+        },
+        "deltas": {
+          "spend": "+46.4%",
+          "impressions": "+1%",
+          "clicks": "-10.7%",
+          "conversions": "-6.2%",
+          "ctr": "-11.5%",
+          "cpc": "+64%",
+          "cpa": "+56.2%"
+        }
+      },
+      "protect": null,
+      "watch": [],
+      "all": [
+        {
+          "classification": "underperforming",
+          "score": 124.8,
+          "action": "Avoid scaling this ad today; test lower-cost placements or audiences.",
+          "reasons": [
+            "CPC increased +64%.",
+            "CPA increased +56.2%.",
+            "Spend increased +46.4% without conversion growth."
+          ],
+          "id": "23861234567890234|adset_mod_1|ad_mod_1",
+          "campaignId": "23861234567890234",
+          "campaignName": "NovaFit Gym | Lead Gen | Trial Pass",
+          "adsetName": "Local Radius 5km | 18-35",
+          "adName": "Offer Static - 7 Day Pass",
+          "current": {
+            "spend": "INR 1,025",
+            "impressions": "30,895",
+            "clicks": "450",
+            "conversions": "15",
+            "ctr": "1.46%",
+            "cpc": "INR 2.28",
+            "cpa": "INR 68.32"
+          },
+          "previous": {
+            "spend": "INR 700",
+            "impressions": "30,600",
+            "clicks": "504",
+            "conversions": "16",
+            "ctr": "1.65%",
+            "cpc": "INR 1.39",
+            "cpa": "INR 43.75"
+          },
+          "deltas": {
+            "spend": "+46.4%",
+            "impressions": "+1%",
+            "clicks": "-10.7%",
+            "conversions": "-6.2%",
+            "ctr": "-11.5%",
+            "cpc": "+64%",
+            "cpa": "+56.2%"
+          }
+        },
+        {
+          "classification": "underperforming",
+          "score": 77.9,
+          "action": "Avoid scaling this ad today; test lower-cost placements or audiences.",
+          "reasons": [
+            "CPC increased +29.4%.",
+            "CPA increased +25.7%.",
+            "Spend increased +18.7% without conversion growth."
+          ],
+          "id": "23861234567890234|adset_mod_2|ad_mod_2",
+          "campaignId": "23861234567890234",
+          "campaignName": "NovaFit Gym | Lead Gen | Trial Pass",
+          "adsetName": "Fitness Interests | 21-45",
+          "adName": "Trainer Reel - Weight Loss",
+          "current": {
+            "spend": "INR 878",
+            "impressions": "31,730",
+            "clicks": "475",
+            "conversions": "17",
+            "ctr": "1.5%",
+            "cpc": "INR 1.85",
+            "cpa": "INR 51.67"
+          },
+          "previous": {
+            "spend": "INR 740",
+            "impressions": "34,200",
+            "clicks": "518",
+            "conversions": "18",
+            "ctr": "1.51%",
+            "cpc": "INR 1.43",
+            "cpa": "INR 41.11"
+          },
+          "deltas": {
+            "spend": "+18.7%",
+            "impressions": "-7.2%",
+            "clicks": "-8.3%",
+            "conversions": "-5.6%",
+            "ctr": "-0.7%",
+            "cpc": "+29.4%",
+            "cpa": "+25.7%"
+          }
+        },
+        {
+          "classification": "underperforming",
+          "score": 26.2,
+          "action": "Avoid scaling this ad today; test lower-cost placements or audiences.",
+          "reasons": [
+            "This ad shows the weakest efficiency movement in the latest comparison."
+          ],
+          "id": "23861234567890234|adset_mod_3|ad_mod_3",
+          "campaignId": "23861234567890234",
+          "campaignName": "NovaFit Gym | Lead Gen | Trial Pass",
+          "adsetName": "Lookalike Leads 1%",
+          "adName": "Carousel - Gym Tour",
+          "current": {
+            "spend": "INR 537",
+            "impressions": "20,875",
+            "clicks": "360",
+            "conversions": "12",
+            "ctr": "1.72%",
+            "cpc": "INR 1.49",
+            "cpa": "INR 44.73"
+          },
+          "previous": {
+            "spend": "INR 560",
+            "impressions": "25,200",
+            "clicks": "418",
+            "conversions": "13",
+            "ctr": "1.66%",
+            "cpc": "INR 1.34",
+            "cpa": "INR 43.08"
+          },
+          "deltas": {
+            "spend": "-4.1%",
+            "impressions": "-17.2%",
+            "clicks": "-13.9%",
+            "conversions": "-7.7%",
+            "ctr": "+3.6%",
+            "cpc": "+11.2%",
+            "cpa": "+3.8%"
+          }
+        }
+      ]
+    }
+  },
+  "reportRun": null,
+  "signals": [],
+  "activities": [],
+  "emailSubject": "Review today: Hold scaling for Offer Static - 7 Day Pass in NovaFit Gym | Lead Gen | Trial Pass - 2026-06-11",
+  "emailHtml": "<!doctype html>\n<html>\n  <head>\n    <meta charset=\"utf-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n    <title>Review today: Hold scaling for Offer Static - 7 Day Pass in NovaFit Gym | Lead Gen | Trial Pass - 2026-06-11</title>\n  </head>\n  <body style=\"margin:0;padding:0;background:#e5e7eb;font-family:Inter,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,Arial,Helvetica,sans-serif;color:#111827;\">\n    <div style=\"display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;\">\n      Hold budget and compare CPM by placement, audience, and geography before changing creative.\n    </div>\n    <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"background:#e5e7eb;margin:0;padding:28px 0;\">\n      <tr>\n        <td align=\"center\" style=\"padding:0 12px;\">\n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:720px;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #d1d5db;box-shadow:0 16px 38px rgba(15,23,42,.13);\">\n            \n            \n    <tr>\n      <td style=\"padding:0;background:#0f172a;color:#ffffff;\">\n        <div style=\"height:6px;background:#ea580c;line-height:6px;font-size:6px;\">&nbsp;</div>\n        <div style=\"padding:24px 28px 22px;background:#0f172a;\">\n        <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n          <tr>\n            <td style=\"vertical-align:top;\">\n              <div style=\"font-size:12px;line-height:17px;color:#94a3b8;font-weight:800;text-transform:uppercase;letter-spacing:.08em;\">Sample report</div>\n              <div style=\"font-size:26px;line-height:32px;font-weight:800;margin-top:7px;color:#ffffff;\">NovaFit Gym | Lead Gen | Trial Pass</div>\n              <div style=\"font-size:14px;line-height:20px;color:#cbd5e1;margin-top:6px;\">2026-06-10 vs 2026-06-11</div>\n            </td>\n            <td align=\"right\" style=\"vertical-align:top;\">\n              <span style=\"display:inline-block;background:#ea580c;color:#ffffff;font-size:12px;line-height:18px;font-weight:800;padding:8px 12px;border-radius:999px;text-transform:uppercase;letter-spacing:.03em;\">Review today</span>\n            </td>\n          </tr>\n        </table>\n        </div>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:22px 28px 18px;background:#ffffff;\">\n        \n    <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border:1px solid #fed7aa;border-top:3px solid #fb923c;border-radius:22px;background:#fff7ed;overflow:hidden;box-shadow:0 14px 32px rgba(15,23,42,.08);\">\n      <tr>\n        <td style=\"padding:20px 20px 18px;\">\n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n            <tr>\n              <td style=\"vertical-align:top;font-size:12px;line-height:18px;color:#64748b;font-weight:700;\">\n                2026-06-10 vs 2026-06-11\n              </td>\n              <td align=\"right\" style=\"vertical-align:top;\">\n                <span style=\"display:inline-block;background:#ea580c;color:#ffffff;font-size:12px;line-height:16px;font-weight:800;padding:7px 10px;border-radius:999px;\">Review today</span>\n                <span style=\"display:inline-block;margin-left:6px;background:#ffffff;border:1px solid #fed7aa;color:#9a3412;font-size:12px;line-height:16px;font-weight:800;padding:7px 10px;border-radius:999px;\">Budget Action</span>\n              </td>\n            </tr>\n          </table>\n          <div style=\"font-size:12px;line-height:18px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.06em;margin-top:15px;\">Sample report</div>\n          <div style=\"font-size:27px;line-height:33px;color:#0f172a;font-weight:800;margin-top:4px;\">Avoid scaling into expensive auctions</div>\n          <div style=\"font-size:15px;line-height:23px;color:#334155;font-weight:400;margin-top:8px;\">Auction costs rose first: CPM rose 31.5%, and CPC rose 36.7% while CTR stayed mostly stable.</div>\n          \n            <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:15px;\">\n              <tr>\n                \n    <td style=\"width:33.33%;padding:0 8px 0 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fb923c;border-radius:15px;background:#ffedd5;padding:11px 12px;box-shadow:0 1px 0 rgba(15,23,42,.03);\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CPM</div>\n        <div style=\"font-size:16px;line-height:21px;color:#0f172a;font-weight:700;margin-top:3px;\">INR 29.22</div>\n        <div style=\"display:inline-block;margin-top:6px;border-radius:999px;background:#fed7aa;color:#9a3412;padding:4px 7px;font-size:12px;line-height:14px;font-weight:800;\">+31.5%</div>\n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 0 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fb923c;border-radius:15px;background:#ffedd5;padding:11px 12px;box-shadow:0 1px 0 rgba(15,23,42,.03);\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CPC</div>\n        <div style=\"font-size:16px;line-height:21px;color:#0f172a;font-weight:700;margin-top:3px;\">INR 1.9</div>\n        <div style=\"display:inline-block;margin-top:6px;border-radius:999px;background:#fed7aa;color:#9a3412;padding:4px 7px;font-size:12px;line-height:14px;font-weight:800;\">+36.7%</div>\n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 0 0;vertical-align:top;\">\n      <div style=\"border:1px solid #e2e8f0;border-radius:15px;background:#f8fafc;padding:11px 12px;box-shadow:0 1px 0 rgba(15,23,42,.03);\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CTR</div>\n        <div style=\"font-size:16px;line-height:21px;color:#0f172a;font-weight:700;margin-top:3px;\">1.54%</div>\n        <div style=\"display:inline-block;margin-top:6px;border-radius:999px;background:#e2e8f0;color:#334155;padding:4px 7px;font-size:12px;line-height:14px;font-weight:800;\">-3.7%</div>\n      </div>\n    </td>\n                \n              </tr>\n            </table>\n          \n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:15px;\">\n            <tr>\n              <td style=\"padding:14px 15px;background:#ffffff;border:1px solid #fed7aa;border-top:2px solid #fb923c;border-radius:16px;box-shadow:0 6px 16px rgba(15,23,42,.06);\">\n                <div style=\"font-size:11px;line-height:15px;color:#9a3412;font-weight:800;text-transform:uppercase;letter-spacing:.06em;\">Do this now</div>\n                <div style=\"font-size:15px;line-height:22px;color:#0f172a;font-weight:800;margin-top:4px;\">Hold budget and compare CPM by placement, audience, and geography before changing creative.</div>\n              </td>\n            </tr>\n            <tr><td style=\"height:8px;font-size:8px;line-height:8px;\">&nbsp;</td></tr>\n            <tr>\n              <td style=\"padding:12px 14px;background:#fff7ed;border:1px solid #fed7aa;border-radius:15px;\">\n                <div style=\"font-size:11px;line-height:15px;color:#9a3412;font-weight:800;text-transform:uppercase;letter-spacing:.06em;\">Do not</div>\n                <div style=\"font-size:14px;line-height:21px;color:#7c2d12;font-weight:500;margin-top:4px;\">Do not increase budget until the primary efficiency signal stabilizes.</div>\n              </td>\n            </tr>\n          </table>\n          <div style=\"margin-top:13px;\">\n            <span style=\"display:inline-block;margin:0 7px 7px 0;background:#ffffff;border:1px solid #fed7aa;border-radius:999px;padding:7px 10px;font-size:12px;line-height:15px;color:#0f172a;font-weight:700;\">Confidence: High</span><span style=\"display:inline-block;margin:0 7px 7px 0;background:#ffffff;border:1px solid #fed7aa;border-radius:999px;padding:7px 10px;font-size:12px;line-height:15px;color:#0f172a;font-weight:700;\">Severity: Medium</span><span style=\"display:inline-block;margin:0 7px 7px 0;background:#ffffff;border:1px solid #fed7aa;border-radius:999px;padding:7px 10px;font-size:12px;line-height:15px;color:#0f172a;font-weight:700;\">Est. risk: INR 655</span>\n          </div>\n        </td>\n      </tr>\n    </table>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:0 28px 20px;background:#ffffff;\">\n        <div style=\"border:1px solid #e2e8f0;border-radius:16px;background:#ffffff;overflow:hidden;\">\n          <div style=\"padding:14px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;\">\n            <div style=\"font-size:16px;line-height:22px;color:#0f172a;font-weight:800;\">Details / evidence</div>\n            <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:2px;\">Supporting signals behind the summary decision.</div>\n          </div>\n          <div style=\"padding:14px 16px 4px;\">\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Expanded metrics</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">Additional useful metrics beyond the summary card.</div>\n      \n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n        \n          <tr>\n            \n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fed7aa;border-radius:12px;padding:12px;background:#fff7ed;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Clicks</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">1,285</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#ffedd5;color:#9a3412;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">-10.8%</div>\n        \n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#f8fafc;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Spend</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">INR 2,440</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#e2e8f0;color:#334155;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">+22%</div>\n        \n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fed7aa;border-radius:12px;padding:12px;background:#fff7ed;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Conversions</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">44</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#ffedd5;color:#9a3412;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">-6.4%</div>\n        \n      </div>\n    </td>\n            \n          </tr>\n        \n          <tr>\n            \n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #fb923c;border-radius:12px;padding:12px;background:#ffedd5;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">CPA</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">INR 55.45</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#fed7aa;color:#9a3412;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">+30.3%</div>\n        \n      </div>\n    </td>\n    <td style=\"width:33.33%;padding:0 8px 10px 0;vertical-align:top;\">\n      <div style=\"border:1px solid #e2e8f0;border-radius:12px;padding:12px;background:#f8fafc;\">\n        <div style=\"font-size:11px;line-height:15px;color:#64748b;font-weight:800;text-transform:uppercase;letter-spacing:.05em;\">Frequency</div>\n        <div style=\"font-size:17px;line-height:23px;color:#0f172a;font-weight:700;margin-top:4px;\">1.18</div>\n        <div style=\"display:inline-block;margin-top:7px;border-radius:999px;background:#e2e8f0;color:#334155;padding:5px 8px;font-size:12px;line-height:14px;font-weight:800;\">0%</div>\n        \n      </div>\n    </td>\n            <td style=\"width:33.33%;\"></td>\n          </tr>\n        \n      </table>\n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Evidence</div>\n      <div style=\"height:8px;font-size:8px;line-height:8px;\">&nbsp;</div>\n      \n      <div style=\"font-size:14px;line-height:22px;color:#0f172a;font-weight:700;margin-bottom:8px;\">Auction costs rose first: CPM rose 31.5%, and CPC rose 36.7% while CTR stayed mostly stable.</div>\n      \n        <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;overflow:hidden;\">\n          \n            <tr>\n              <td width=\"96\" style=\"padding:11px 12px;vertical-align:top;\">\n                <span style=\"display:inline-block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:999px;padding:6px 8px;font-size:12px;line-height:15px;color:#0f172a;font-weight:800;\">CPC +36.7%</span>\n              </td>\n              <td style=\"padding:11px 12px 11px 0;vertical-align:middle;\">\n                <div style=\"font-size:13px;line-height:20px;color:#475569;\">Each website visit or click became more expensive.</div>\n              </td>\n            </tr>\n          \n            <tr>\n              <td width=\"96\" style=\"padding:11px 12px;vertical-align:top;border-top:1px solid #e2e8f0;\">\n                <span style=\"display:inline-block;background:#f8fafc;border:1px solid #e2e8f0;border-radius:999px;padding:6px 8px;font-size:12px;line-height:15px;color:#0f172a;font-weight:800;\">CPA +30.3%</span>\n              </td>\n              <td style=\"padding:11px 12px 11px 0;vertical-align:middle;border-top:1px solid #e2e8f0;\">\n                <div style=\"font-size:13px;line-height:20px;color:#475569;\">Each lead or purchase became more expensive.</div>\n              </td>\n            </tr>\n          \n        </table>\n      \n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Cost-pressure contributor</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">Where the auction pressure appears strongest.</div>\n      \n      <div style=\"border:1px solid #fed7aa;border-radius:12px;background:#fff7ed;padding:12px 14px;\">\n        <div style=\"font-size:15px;line-height:22px;color:#0f172a;font-weight:800;\">Offer Static - 7 Day Pass</div>\n        <div style=\"font-size:13px;line-height:20px;color:#475569;margin-top:4px;\">This segment shows the strongest cost increase. Check audience, placement, geography, and inventory cost before blaming creative.</div>\n        <div style=\"font-size:13px;line-height:20px;color:#0f172a;margin-top:8px;\"><b>Recommended action:</b> Hold scaling here and test lower-cost placements or audiences before increasing budget.</div>\n        \n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:8px;\">\n            \n              <tr>\n                <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#ea580c;vertical-align:top;\">&bull;</td>\n                <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">CPC increased +64%.</td>\n              </tr>\n            \n              <tr>\n                <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#ea580c;vertical-align:top;\">&bull;</td>\n                <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">CPA increased +56.2%.</td>\n              </tr>\n            \n          </table>\n        \n      </div>\n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Next actions</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">The shortest useful sequence.</div>\n      \n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-bottom:8px;border:1px solid #fed7aa;border-radius:12px;background:#fff7ed;\">\n        <tr>\n          <td width=\"42\" style=\"padding:10px 0 10px 12px;vertical-align:top;\">\n            <div style=\"width:26px;height:26px;border-radius:999px;background:#ea580c;color:#ffffff;text-align:center;font-size:13px;line-height:26px;font-weight:800;\">1</div>\n          </td>\n          <td style=\"padding:10px 12px 10px 4px;font-size:14px;line-height:21px;color:#0f172a;font-weight:800;\">Hold budget and compare CPM by placement, audience, and geography before changing creative.</td>\n        </tr>\n      </table>\n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-bottom:8px;border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;\">\n        <tr>\n          <td width=\"42\" style=\"padding:10px 0 10px 12px;vertical-align:top;\">\n            <div style=\"width:26px;height:26px;border-radius:999px;background:#e2e8f0;color:#334155;text-align:center;font-size:13px;line-height:26px;font-weight:800;\">2</div>\n          </td>\n          <td style=\"padding:10px 12px 10px 4px;font-size:14px;line-height:21px;color:#0f172a;font-weight:500;\">Compare CPM by placement, audience, and location.</td>\n        </tr>\n      </table>\n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-bottom:8px;border:1px solid #e2e8f0;border-radius:12px;background:#ffffff;\">\n        <tr>\n          <td width=\"42\" style=\"padding:10px 0 10px 12px;vertical-align:top;\">\n            <div style=\"width:26px;height:26px;border-radius:999px;background:#e2e8f0;color:#334155;text-align:center;font-size:13px;line-height:26px;font-weight:800;\">3</div>\n          </td>\n          <td style=\"padding:10px 12px 10px 4px;font-size:14px;line-height:21px;color:#0f172a;font-weight:500;\">Hold budget on expensive segments.</td>\n        </tr>\n      </table>\n    </div>\n            \n    <div style=\"margin-bottom:14px;\">\n      <div style=\"font-size:14px;line-height:20px;color:#0f172a;font-weight:800;\">Watch next</div>\n      <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:1px;margin-bottom:8px;\">Timeframe: Next 48-72 hours</div>\n      \n      <div style=\"margin-bottom:9px;\"><span style=\"display:inline-block;background:#fffbf5;border:1px solid #fed7aa;color:#9a3412;border-radius:999px;padding:6px 9px;margin:0 5px 5px 0;font-size:12px;line-height:15px;font-weight:700;\">CPM</span><span style=\"display:inline-block;background:#fffbf5;border:1px solid #fed7aa;color:#9a3412;border-radius:999px;padding:6px 9px;margin:0 5px 5px 0;font-size:12px;line-height:15px;font-weight:700;\">CPC</span><span style=\"display:inline-block;background:#fffbf5;border:1px solid #fed7aa;color:#9a3412;border-radius:999px;padding:6px 9px;margin:0 5px 5px 0;font-size:12px;line-height:15px;font-weight:700;\">CTR</span></div>\n      <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\">\n        <tr><td style=\"padding:10px 12px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;font-size:13px;line-height:20px;color:#064e3b;\"><b>Good:</b> CPM should fall before CPC improves materially.</td></tr>\n        <tr><td style=\"height:7px;font-size:7px;line-height:7px;\">&nbsp;</td></tr>\n        <tr><td style=\"padding:10px 12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:10px;font-size:13px;line-height:20px;color:#9a3412;\"><b>Bad:</b> The same issue gets worse in the next daily report.</td></tr>\n      </table>\n    </div>\n          </div>\n        </div>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:0 28px 24px;background:#ffffff;\">\n        <div style=\"border:1px solid #e2e8f0;border-radius:16px;background:#f8fafc;padding:14px 16px;\">\n          <div style=\"font-size:16px;line-height:22px;color:#0f172a;font-weight:800;\">Diagnostics</div>\n          <div style=\"font-size:12px;line-height:18px;color:#64748b;margin-top:2px;\">Reliability and data notes behind this recommendation.</div>\n          <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:12px;\">\n            <tr>\n              <td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Data confidence:</b> Strong</td>\n            </tr>\n            <tr>\n              <td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Reliability:</b> High - The recommendation is supported by enough delivery volume and usable metric data.</td>\n            </tr>\n            <tr><td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Data score:</b> 95/100+</td></tr>\n            <tr>\n              <td style=\"font-size:13px;line-height:21px;color:#475569;padding-bottom:5px;\"><b>Baseline:</b> Compared against a 5-day baseline before 2026-06-11.</td>\n            </tr>\n            \n          </table>\n          \n            <div style=\"font-size:13px;line-height:20px;color:#475569;margin-top:6px;\"><b>Filtered or unreliable metrics:</b></div>\n            <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:4px;\">\n              \n                <tr>\n                  <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#64748b;vertical-align:top;\">&bull;</td>\n                  <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\"><b>ROAS:</b> No usable value was present for this metric in either compared period.</td>\n                </tr>\n              \n            </table>\n          \n          \n            <div style=\"font-size:13px;line-height:20px;color:#475569;margin-top:8px;\"><b>Diagnostic checks:</b></div>\n            <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:4px;\">\n              \n                <tr>\n                  <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#64748b;vertical-align:top;\">&bull;</td>\n                  <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">Compare CPM by placement and audience.</td>\n                </tr>\n              \n                <tr>\n                  <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#64748b;vertical-align:top;\">&bull;</td>\n                  <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">Check competitor-heavy sale periods, holidays, or campaign launches.</td>\n                </tr>\n              \n                <tr>\n                  <td width=\"16\" style=\"font-size:15px;line-height:21px;color:#64748b;vertical-align:top;\">&bull;</td>\n                  <td style=\"font-size:12px;line-height:19px;color:#64748b;padding-bottom:2px;\">Shift test budget into lower-cost placements only if quality holds.</td>\n                </tr>\n              \n            </table>\n          \n        </div>\n      </td>\n    </tr>\n            \n    <tr>\n      <td style=\"padding:20px 28px;background:#0f172a;border-top:1px solid #1e293b;\">\n        <div style=\"font-size:12px;line-height:18px;color:#cbd5e1;\">\n          Generated by Narrative on 13/6/2026, 12:36:01 am. This report is based on Meta Ads data available at send time.\n        </div>\n      </td>\n    </tr>\n          </table>\n        </td>\n      </tr>\n    </table>\n  </body>\n</html>",
+  "comparison": {
+    "mode": "mock_daily_rows",
+    "period": {
+      "current": "2026-06-11",
+      "previous": "2026-06-10"
+    },
+    "rowCount": 18
+  }
+}
