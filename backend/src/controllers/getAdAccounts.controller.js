@@ -1,4 +1,5 @@
 import { MetaConnection } from "../models/MetaConnection.js";
+import { getMetaAccessToken } from "../utils/metaToken.js";
 
 export const getAdAccounts = async (req, res) => {
   try {
@@ -23,7 +24,7 @@ export const getAdAccounts = async (req, res) => {
       agency_id: agencyId,
       client_id: clientId,
       is_active: true,
-    }).select("+access_token");
+    }).select("+access_token +access_token_encrypted");
 
     if (!connection) {
       return res.status(404).json({
@@ -39,8 +40,17 @@ export const getAdAccounts = async (req, res) => {
       });
     }
 
+    const accessToken = getMetaAccessToken(connection);
+
+    if (!accessToken) {
+      return res.status(401).json({
+        success: false,
+        message: "Meta token missing. Please reconnect Meta.",
+      });
+    }
+
     const response = await fetch(
-      `https://graph.facebook.com/v19.0/me/adaccounts?fields=name,account_id,id&access_token=${connection.access_token}`
+      `https://graph.facebook.com/v19.0/me/adaccounts?fields=name,account_id,id&access_token=${accessToken}`
     );
     const data = await response.json();
 

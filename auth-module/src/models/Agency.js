@@ -35,6 +35,11 @@ export const createAgencyModel = (mongoose) => {
         lowercase: true,
         trim: true,
       },
+      created_by: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
       createdAt: {
         type: Date,
         default: Date.now,
@@ -45,6 +50,8 @@ export const createAgencyModel = (mongoose) => {
       collection: "agencies",
     }
   );
+
+  agencySchema.index({ created_by: 1 });
 
   agencySchema.pre("validate", async function () {
     if (!this.isModified("name") && this.slug) return;

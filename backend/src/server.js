@@ -10,6 +10,7 @@ import reportRouter from "./routes/reports.routes.js";
 import activityRouter from "./routes/activities.routes.js";
 import clientRouter from "./routes/clients.routes.js";
 import signalRouter from "./routes/signals.routes.js";
+import settingsRouter from "./routes/settings.routes.js";
 import { startN8NScheduler } from "./jobs/n8nScheduler.js";
 
 startN8NScheduler();
@@ -22,7 +23,7 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 app.use(cookieParser());
 
 app.use("/api/meta", metaRouter);
@@ -30,6 +31,7 @@ app.use("/api/reports", reportRouter);
 app.use("/api/clients", clientRouter);
 app.use("/api/signals", signalRouter);
 app.use("/api/activities", activityRouter);
+app.use("/api/settings", settingsRouter);
 
 // db
 try {

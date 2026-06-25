@@ -1,6 +1,7 @@
 import { MetaConnection } from "../models/MetaConnection.js";
 import { recordActivity } from "../services/activityRecorder.service.js";
 import { logAction, logError } from "../utils/controllerLogger.js";
+import { encryptMetaToken } from "../utils/metaToken.js";
 
 const SCOPE = "Meta";
 
@@ -166,10 +167,17 @@ export const metaCallback = async (req, res) => {
         client_id: clientId,
       },
       {
-        access_token: longData.access_token,
-        token_expires_at: tokenExpiresAt,
-        is_active: true,
-        connected_by: userId,
+        $set: {
+          access_token_encrypted: encryptMetaToken(longData.access_token),
+          token_expires_at: tokenExpiresAt,
+          status: "active",
+          is_active: true,
+          connected_by: userId,
+          last_error: null,
+        },
+        $unset: {
+          access_token: "",
+        },
       },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );

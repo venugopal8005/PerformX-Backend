@@ -29,7 +29,7 @@ export const createUserModel = (mongoose) => {
       },
       role: {
         type: String,
-        enum: ["owner", "member"],
+        enum: ["owner", "admin", "analyst", "member"],
         default: "owner",
       },
       agencyId: {

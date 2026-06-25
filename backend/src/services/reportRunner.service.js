@@ -12,6 +12,7 @@ import { getComparisonWindows } from "./timeWindowAggregator.service.js";
 import { recordActivity, recordSignalActivities } from "./activityRecorder.service.js";
 import { saveSignalsFromNarrative } from "./signalGenerator.service.js";
 import { generateOperationalInsight } from "../../performanceNarratorEngine.js";
+import { getMetaAccessToken } from "../utils/metaToken.js";
 
 const SCOPE = "ReportRunner";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -318,7 +319,7 @@ export const runReport = async (reportId, options = {}) => {
     agency_id: report.agency_id,
     client_id: report.client_id,
     is_active: true,
-  }).select("+access_token");
+  }).select("+access_token +access_token_encrypted");
 
   if (!connection) {
     throw new Error("Active Meta connection not found for client");
@@ -334,19 +335,25 @@ export const runReport = async (reportId, options = {}) => {
     throw new Error("Meta ad account not selected for client");
   }
 
+  const accessToken = getMetaAccessToken(connection);
+
+  if (!accessToken) {
+    throw new Error("Meta token missing. Please reconnect Meta.");
+  }
+
   const period = getComparisonWindows(report.type, {
     timezone: report.schedule?.timezone,
     now,
   });
   const [currentInsights, previousInsights] = await Promise.all([
     fetchMetaInsights({
-      accessToken: connection.access_token,
+      accessToken,
       adAccountId: connection.ad_account_id,
       dateRange: period.current,
       campaigns: report.monitored_campaigns,
     }),
     fetchMetaInsights({
-      accessToken: connection.access_token,
+      accessToken,
       adAccountId: connection.ad_account_id,
       dateRange: period.previous,
       campaigns: report.monitored_campaigns,
@@ -361,7 +368,7 @@ export const runReport = async (reportId, options = {}) => {
 
   if (shouldUseHistoricalFallback(comparison)) {
     const historicalComparison = await buildHistoricalFallbackComparison({
-      accessToken: connection.access_token,
+      accessToken,
       adAccountId: connection.ad_account_id,
       campaigns: report.monitored_campaigns,
       reportType: report.type,

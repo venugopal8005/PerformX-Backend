@@ -1,5 +1,7 @@
 import { Agency, User } from "../../index.js";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 import { OAuth2Client } from "google-auth-library";
 import { generateToken } from "../services/token.service.js";
 import { cookieOptions } from "../config/cookieOptions.js";
@@ -9,6 +11,10 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const normalizeEmail = (email = "") => email.toString().trim().toLowerCase();
 const normalizeText = (value = "") => value.toString().trim();
 const isValidEmail = (email = "") => EMAIL_PATTERN.test(normalizeEmail(email));
+const idsMatch = (left, right) =>
+  left && right && left.toString() === right.toString();
+const hashInviteToken = (token) =>
+  crypto.createHash("sha256").update(String(token || "")).digest("hex");
 
 const verifyGoogleCredential = async (credential) => {
   const googleClientId = process.env.GOOGLE_CLIENT_ID;
@@ -40,9 +46,42 @@ const verifyGoogleCredential = async (credential) => {
   };
 };
 
+const resolveGoogleAccessTokenProfile = async (accessToken) => {
+  const response = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Google access token could not be verified");
+  }
+
+  const payload = await response.json();
+
+  if (!payload?.email || !payload?.sub || !payload?.name) {
+    throw new Error("Google profile is missing required fields");
+  }
+
+  if (payload.email_verified === false || payload.email_verified === "false") {
+    throw new Error("Google email is not verified");
+  }
+
+  return {
+    name: normalizeText(payload.name),
+    email: normalizeEmail(payload.email),
+    googleId: payload.sub,
+    avatar: payload.picture || null,
+  };
+};
+
 const resolveGoogleProfile = async (body = {}) => {
   if (body.credential) {
     return verifyGoogleCredential(body.credential);
+  }
+
+  if (body.accessToken || body.access_token) {
+    return resolveGoogleAccessTokenProfile(body.accessToken || body.access_token);
   }
 
   return {
@@ -70,17 +109,39 @@ const getAgencyId = (user) => {
 const getUserField = (user, camelKey, snakeKey) =>
   user?.[camelKey] ?? user?.[snakeKey] ?? null;
 
-const toAuthAgency = (agency) => {
+const getGoogleId = (user) => getUserField(user, "googleId", "google_id");
+
+const googleIdQueryConditions = (googleId) => {
+  if (!googleId) return [];
+
+  const conditions = [];
+  if (User.schema.path("googleId")) conditions.push({ googleId });
+  if (User.schema.path("google_id")) conditions.push({ google_id: googleId });
+
+  return conditions.length ? conditions : [{ googleId }];
+};
+
+const getWorkspaceSettings = async (agencyId) => {
+  if (!agencyId || !mongoose.models.WorkspaceSettings) return null;
+
+  return mongoose.models.WorkspaceSettings.findOne({ agency_id: agencyId })
+    .select("logo_url")
+    .lean();
+};
+
+const toAuthAgency = (agency, workspaceSettings = null) => {
   if (!agency) return null;
 
   return {
     id: agency._id,
     name: agency.name,
     slug: agency.slug,
+    logo_url: workspaceSettings?.logo_url || null,
+    logoUrl: workspaceSettings?.logo_url || null,
   };
 };
 
-const toAuthUser = (user, agency) => {
+const toAuthUser = (user, agency, workspaceSettings = null) => {
   const populatedAgency =
     user.agencyId && typeof user.agencyId === "object" && user.agencyId.name
       ? user.agencyId
@@ -91,9 +152,10 @@ const toAuthUser = (user, agency) => {
     fullName: getUserField(user, "fullName", "full_name"),
     email: user.email,
     avatar: getUserField(user, "avatar", "avatar_url"),
+    avatar_url: getUserField(user, "avatar", "avatar_url"),
     role: user.role,
     agencyId: getAgencyId(user),
-    agency: toAuthAgency(populatedAgency),
+    agency: toAuthAgency(populatedAgency, workspaceSettings),
   };
 };
 
@@ -104,15 +166,150 @@ const sendAuthResponse = async (res, status, user, message, agency = null) => {
     (user.agencyId && typeof user.agencyId === "object" && user.agencyId.name
       ? user.agencyId
       : await Agency.findById(getAgencyId(user)).select("name slug"));
+  const workspaceSettings = await getWorkspaceSettings(getAgencyId(user));
 
   res.cookie("token", token, cookieOptions);
 
   return res.status(status).json({
     message,
     token,
-    user: toAuthUser(user, authAgency),
+    user: toAuthUser(user, authAgency, workspaceSettings),
   });
 };
+
+const setAgencyOwner = async (agency, userId) => {
+  if (!agency || !userId || idsMatch(agency.created_by, userId)) return agency;
+
+  agency.created_by = userId;
+  await agency.save();
+  return agency;
+};
+
+const ensureOwnerMembership = async (agency, user) => {
+  const WorkspaceMember = mongoose.models.WorkspaceMember;
+  if (!WorkspaceMember || !agency?._id || !user?._id) return null;
+
+  return WorkspaceMember.findOneAndUpdate(
+    {
+      workspace_id: agency._id,
+      user_id: user._id,
+    },
+    {
+      $set: {
+        role: "owner",
+        status: "active",
+        removed_at: null,
+      },
+      $setOnInsert: {
+        workspace_id: agency._id,
+        user_id: user._id,
+        joined_at: user.createdAt || new Date(),
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+};
+
+const findUsableInvite = async (rawToken) => {
+  const WorkspaceInvite = mongoose.models.WorkspaceInvite;
+  if (!WorkspaceInvite || !rawToken) return null;
+
+  const invite = await WorkspaceInvite.findOne({
+    token_hash: hashInviteToken(rawToken),
+  });
+
+  if (!invite || invite.status !== "pending") return null;
+
+  if (invite.expires_at <= new Date()) {
+    invite.status = "expired";
+    await invite.save();
+    return null;
+  }
+
+  return invite;
+};
+
+const acceptInviteForUser = async (invite, user) => {
+  const WorkspaceMember = mongoose.models.WorkspaceMember;
+  if (!WorkspaceMember || !invite || !user) return null;
+
+  const membership = await WorkspaceMember.findOneAndUpdate(
+    {
+      workspace_id: invite.workspace_id,
+      user_id: user._id,
+    },
+    {
+      $set: {
+        role: invite.role,
+        status: "active",
+        removed_at: null,
+      },
+      $setOnInsert: {
+        workspace_id: invite.workspace_id,
+        user_id: user._id,
+        joined_at: new Date(),
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
+
+  invite.status = "accepted";
+  invite.accepted_by_user_id = user._id;
+  invite.accepted_at = new Date();
+  await invite.save();
+
+  return membership;
+};
+
+const findGoogleAuthUser = async ({ email, googleId }) => {
+  const conditions = [{ email }, ...googleIdQueryConditions(googleId)];
+
+  const users = await User.find({ $or: conditions }).limit(2);
+  if (!users.length) return null;
+
+  const emailUser = users.find((user) => user.email === email);
+  const googleUser = users.find((user) => getGoogleId(user) === googleId);
+
+  if (emailUser && googleUser && !idsMatch(emailUser._id, googleUser._id)) {
+    const conflict = new Error(
+      "This Google account is already linked to another user"
+    );
+    conflict.status = 409;
+    throw conflict;
+  }
+
+  return emailUser || googleUser || users[0];
+};
+
+const applyGoogleProfile = (user, { avatar, email, googleId, name }) => {
+  const existingGoogleId = getGoogleId(user);
+
+  if (existingGoogleId && existingGoogleId !== googleId) {
+    const conflict = new Error(
+      "This email is already linked to another Google account"
+    );
+    conflict.status = 409;
+    throw conflict;
+  }
+
+  user.email = email || user.email;
+  user.fullName = user.fullName || name;
+  user.googleId = user.googleId || googleId;
+  user.avatar = user.avatar || avatar;
+  return user;
+};
+
+const sendGoogleAgencyRequiredResponse = (res, { avatar, email, name }) =>
+  res.status(400).json({
+    message: "Agency name is required",
+    requiresAgencyName: true,
+    step: "agency_required",
+    profile: {
+      name,
+      email,
+      avatar,
+    },
+  });
 
 export const register = async (req, res) => {
   try {
@@ -120,10 +317,11 @@ export const register = async (req, res) => {
     const fullName = normalizeText(req.body.fullName);
     const { password } = req.body;
     const email = req.body.email ? normalizeEmail(req.body.email) : "";
+    const inviteToken = normalizeText(req.body.inviteToken);
 
-    if (!agencyName || !email || !fullName || !password) {
+    if (!email || !fullName || !password || (!agencyName && !inviteToken)) {
       return res.status(400).json({
-        message: "Agency name, full name, email, and password are required",
+        message: "Full name, email, password, and workspace context are required",
       });
     }
 
@@ -144,6 +342,37 @@ export const register = async (req, res) => {
       return res.status(409).json({ message: "User already exists" });
     }
 
+    if (inviteToken) {
+      const invite = await findUsableInvite(inviteToken);
+      if (!invite) {
+        return res.status(400).json({ message: "Invitation is invalid or expired" });
+      }
+
+      if (invite.email !== email) {
+        return res.status(403).json({
+          message: `This invitation was sent to ${invite.email}. Please sign up with that email to accept it.`,
+        });
+      }
+
+      const agency = await Agency.findById(invite.workspace_id);
+      const user = await User.create({
+        fullName,
+        email,
+        passwordHash: password,
+        role: invite.role,
+        agencyId: invite.workspace_id,
+      });
+      await acceptInviteForUser(invite, user);
+
+      return sendAuthResponse(
+        res,
+        201,
+        user,
+        "Invitation accepted successfully",
+        agency
+      );
+    }
+
     // Email signup creates the first workspace and makes the user its owner.
     const agency = await Agency.create({ name: agencyName });
     const user = await User.create({
@@ -153,6 +382,8 @@ export const register = async (req, res) => {
       role: "owner",
       agencyId: agency._id,
     });
+    await setAgencyOwner(agency, user._id);
+    await ensureOwnerMembership(agency, user);
 
     return sendAuthResponse(
       res,
@@ -204,7 +435,9 @@ export const login = async (req, res) => {
 export const googleSignup = async (req, res) => {
   try {
     const agencyName = normalizeText(req.body.agencyName);
-    const { avatar, email, googleId, name } = await resolveGoogleProfile(req.body);
+    const inviteToken = normalizeText(req.body.inviteToken);
+    const profile = await resolveGoogleProfile(req.body);
+    const { avatar, email, googleId, name } = profile;
 
     if (!email || !googleId || !name || !isValidEmail(email)) {
       return res.status(400).json({
@@ -213,43 +446,77 @@ export const googleSignup = async (req, res) => {
     }
 
     // Google signup/login uses the verified Google email as the identity key.
-    const existingUser = await User.findOne({ email });
-    if (existingUser?.agencyId) {
-      let shouldSave = false;
+    const existingUser = await findGoogleAuthUser({ email, googleId });
 
-      if (!existingUser.googleId) {
-        existingUser.googleId = googleId;
-        shouldSave = true;
+    if (inviteToken) {
+      const invite = await findUsableInvite(inviteToken);
+      if (!invite) {
+        return res.status(400).json({ message: "Invitation is invalid or expired" });
       }
 
-      if (!existingUser.avatar && avatar) {
-        existingUser.avatar = avatar;
-        shouldSave = true;
+      if (invite.email !== email) {
+        return res.status(403).json({
+          message: `This invitation was sent to ${invite.email}. Please sign in with that email to accept it.`,
+        });
       }
 
-      if (shouldSave) {
+      const agency = await Agency.findById(invite.workspace_id);
+
+      if (existingUser) {
+        applyGoogleProfile(existingUser, profile);
+        existingUser.role = invite.role;
+        existingUser.agencyId = invite.workspace_id;
         await existingUser.save();
+        await acceptInviteForUser(invite, existingUser);
+
+        return sendAuthResponse(
+          res,
+          200,
+          existingUser,
+          "Invitation accepted successfully",
+          agency
+        );
       }
+
+      const invitedUser = await User.create({
+        fullName: name,
+        email,
+        googleId,
+        avatar,
+        role: invite.role,
+        agencyId: invite.workspace_id,
+      });
+      await acceptInviteForUser(invite, invitedUser);
+
+      return sendAuthResponse(
+        res,
+        201,
+        invitedUser,
+        "Invitation accepted successfully",
+        agency
+      );
+    }
+
+    if (existingUser && getAgencyId(existingUser)) {
+      applyGoogleProfile(existingUser, profile);
+      await existingUser.save();
 
       return sendAuthResponse(res, 200, existingUser, "Login successful");
     }
 
     if (!agencyName) {
-      return res.status(400).json({
-        message: "Agency name is required",
-        requiresAgencyName: true,
-      });
+      return sendGoogleAgencyRequiredResponse(res, profile);
     }
 
     const agency = await Agency.create({ name: agencyName });
 
     if (existingUser) {
-      existingUser.fullName = existingUser.fullName || name;
-      existingUser.googleId = existingUser.googleId || googleId;
-      existingUser.avatar = existingUser.avatar || avatar;
-      existingUser.role = existingUser.role || "owner";
+      applyGoogleProfile(existingUser, profile);
+      existingUser.role = "owner";
       existingUser.agencyId = agency._id;
       await existingUser.save();
+      await setAgencyOwner(agency, existingUser._id);
+      await ensureOwnerMembership(agency, existingUser);
 
       return sendAuthResponse(
         res,
@@ -267,6 +534,8 @@ export const googleSignup = async (req, res) => {
       role: "owner",
       agencyId: agency._id,
     });
+    await setAgencyOwner(agency, user._id);
+    await ensureOwnerMembership(agency, user);
 
     return sendAuthResponse(
       res,
@@ -275,6 +544,10 @@ export const googleSignup = async (req, res) => {
       "Google signup completed successfully"
     );
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ message: err.message });
+    }
+
     if (err.code === 11000) {
       return res.status(409).json({ message: "Agency or user already exists" });
     }
@@ -299,7 +572,9 @@ export const me = async (req, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    res.json({ user: toAuthUser(user) });
+    const workspaceSettings = await getWorkspaceSettings(getAgencyId(user));
+
+    res.json({ user: toAuthUser(user, null, workspaceSettings) });
   } catch (err) {
     console.error("Auth check failed", err);
     res.status(500).json({ message: "Server error" });

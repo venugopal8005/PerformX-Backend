@@ -11,8 +11,19 @@ const metaConnectionSchema = new mongoose.Schema(
     client_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Client",
-      required: true,
+      default: null,
       index: true,
+    },
+    meta_user_id: {
+      type: String,
+      trim: true,
+      default: null,
+      index: true,
+    },
+    meta_user_name: {
+      type: String,
+      trim: true,
+      default: null,
     },
     business_id: {
       type: String,
@@ -32,11 +43,35 @@ const metaConnectionSchema = new mongoose.Schema(
     },
     access_token: {
       type: String,
-      required: true,
       select: false,
+    },
+    access_token_encrypted: {
+      type: String,
+      select: false,
+      default: null,
     },
     token_expires_at: {
       type: Date,
+      default: null,
+    },
+    permissions: {
+      type: [String],
+      default: [],
+    },
+    status: {
+      type: String,
+      enum: ["active", "expiring_soon", "expired", "permission_error", "revoked"],
+      default: "active",
+      required: true,
+      index: true,
+    },
+    last_synced_at: {
+      type: Date,
+      default: null,
+    },
+    last_error: {
+      type: String,
+      trim: true,
       default: null,
     },
     is_active: {
@@ -57,6 +92,7 @@ const metaConnectionSchema = new mongoose.Schema(
 );
 
 metaConnectionSchema.index({ agency_id: 1, client_id: 1 });
+metaConnectionSchema.index({ agency_id: 1, meta_user_id: 1 });
 metaConnectionSchema.index(
   { client_id: 1, ad_account_id: 1 },
   {
@@ -67,6 +103,22 @@ metaConnectionSchema.index(
   }
 );
 metaConnectionSchema.index({ connected_by: 1 });
+
+metaConnectionSchema.virtual("workspace_id").get(function () {
+  return this.agency_id;
+});
+
+metaConnectionSchema.virtual("workspace_id").set(function (value) {
+  this.agency_id = value;
+});
+
+metaConnectionSchema.virtual("connected_by_user_id").get(function () {
+  return this.connected_by;
+});
+
+metaConnectionSchema.virtual("connected_by_user_id").set(function (value) {
+  this.connected_by = value;
+});
 
 export const MetaConnection =
   mongoose.models.MetaConnection ||
