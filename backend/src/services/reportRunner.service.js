@@ -1,10 +1,6 @@
-import {
-  formatPerformanceEmail,
-  formatPerformanceEmailSubject,
-} from "../utils/performanceEmailFormatter.js";
 import { getNextRunAt } from "../utils/reportSchedule.js";
 import { logAction, logError } from "../utils/controllerLogger.js";
-import { Activity, MetaConnection, Report, ReportRun } from "../models/index.js";
+import { Activity, Client, MetaConnection, Report, ReportRun } from "../models/index.js";
 import { compareMetrics } from "./metricComparison.service.js";
 import { fetchMetaInsights } from "./metaInsights.service.js";
 import { aggregateMetaMetrics } from "./metaInsights.service.js";
@@ -13,6 +9,7 @@ import { recordActivity, recordSignalActivities } from "./activityRecorder.servi
 import { saveSignalsFromNarrative } from "./signalGenerator.service.js";
 import { generateOperationalInsight } from "../../performanceNarratorEngine.js";
 import { getMetaAccessToken } from "../utils/metaToken.js";
+import { processReportDelivery } from "./reportDelivery.service.js";
 
 const SCOPE = "ReportRunner";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -250,6 +247,8 @@ const buildReportRunDocument = ({
   signals,
   emailSubject,
   emailHtml,
+  internalReport,
+  clientReport,
   now,
   options,
 }) => ({
@@ -275,9 +274,12 @@ const buildReportRunDocument = ({
   period: comparison?.period || narrative.period || {},
   comparison,
   narrative,
+  engine_output: narrative,
   signal_ids: signals.map((signal) => signal._id),
   email_subject: emailSubject,
   email_html: emailHtml,
+  internal_report: internalReport,
+  client_report: clientReport,
   ran_at: now,
 });
 
@@ -340,6 +342,12 @@ export const runReport = async (reportId, options = {}) => {
   if (!accessToken) {
     throw new Error("Meta token missing. Please reconnect Meta.");
   }
+
+  const client = await Client.findOne({
+    _id: report.client_id,
+    agency_id: report.agency_id,
+  }).lean();
+  const clientName = client?.name || report.name || "Client";
 
   const period = getComparisonWindows(report.type, {
     timezone: report.schedule?.timezone,
@@ -476,17 +484,28 @@ export const runReport = async (reportId, options = {}) => {
   report.next_run_at = getNextRunAt(report, now);
   await report.save();
 
-  const emailSubject = formatPerformanceEmailSubject(narrative, {
-    campaignName: report.name,
+  const generatedAt = now.toLocaleString("en-IN", {
+    timeZone: report.schedule?.timezone || "Asia/Kolkata",
   });
-  const emailHtml = formatPerformanceEmail(narrative, {
-    title: report.name,
-    subject: emailSubject,
-    campaignName: report.name,
-    generatedAt: now.toLocaleString("en-IN", {
-      timeZone: report.schedule?.timezone || "Asia/Kolkata",
-    }),
+  const clientOrigin = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+  const reportUrl = `${clientOrigin}/reports/${report._id}`;
+  const { internalReport, clientReport } = await processReportDelivery({
+    report,
+    narrative,
+    comparison,
+    clientName,
+    generatedAt,
+    reportUrl,
+    metadata: {
+      agencyId: report.agency_id,
+      clientId: report.client_id,
+      reportId: report._id,
+      reportName: report.name,
+      clientName,
+    },
   });
+  const emailSubject = internalReport?.subject || null;
+  const emailHtml = internalReport?.html || null;
   const reportRun = await ReportRun.create(
     buildReportRunDocument({
       report,
@@ -495,6 +514,8 @@ export const runReport = async (reportId, options = {}) => {
       signals,
       emailSubject,
       emailHtml,
+      internalReport,
+      clientReport,
       now,
       options,
     })
@@ -504,6 +525,10 @@ export const runReport = async (reportId, options = {}) => {
     reportId: report._id,
     reportRunId: reportRun._id,
     signalCount: signals.length,
+    internalReportStatus: internalReport?.status,
+    clientReportStatus: clientReport?.status,
+    clientDeliveryMode: clientReport?.delivery_mode,
+    clientSafetyPassed: clientReport?.safety?.passed,
     nextRunAt: report.next_run_at,
   }, "green");
 
@@ -521,7 +546,14 @@ export const runReport = async (reportId, options = {}) => {
     activities,
     emailSubject,
     emailHtml,
-    recipients: report.recipients || [],
+    internalReport,
+    clientReport,
+    clientName,
+    recipients:
+      internalReport?.recipients?.map((recipient) => recipient.email) ||
+      report.internal_recipients ||
+      report.recipients ||
+      [],
   };
 };
 

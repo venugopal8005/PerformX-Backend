@@ -1,5 +1,125 @@
 import mongoose from "mongoose";
 
+const deliveryRecipientSchema = new mongoose.Schema(
+  {
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+    },
+    status: {
+      type: String,
+      enum: ["pending", "sent", "failed"],
+      default: "pending",
+    },
+    error: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
+const reportEmailArtifactSchema = new mongoose.Schema(
+  {
+    status: {
+      type: String,
+      enum: [
+        "generated",
+        "awaiting_approval",
+        "held_for_review",
+        "sent",
+        "cancelled",
+        "failed",
+      ],
+      default: "generated",
+    },
+    delivery_mode: {
+      type: String,
+      enum: ["generate_only", "auto_send", "approval_required"],
+      default: "generate_only",
+    },
+    subject: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    html: {
+      type: String,
+      default: null,
+    },
+    text: {
+      type: String,
+      default: null,
+    },
+    sent_at: {
+      type: Date,
+      default: null,
+    },
+    approved_at: {
+      type: Date,
+      default: null,
+    },
+    approved_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    recipients: {
+      type: [deliveryRecipientSchema],
+      default: [],
+    },
+    safety: {
+      passed: {
+        type: Boolean,
+        default: null,
+      },
+      reasons: {
+        type: [String],
+        default: [],
+      },
+      warnings: {
+        type: [String],
+        default: [],
+      },
+    },
+  },
+  { _id: false }
+);
+
+const internalReportArtifactSchema = new mongoose.Schema(
+  {
+    status: {
+      type: String,
+      enum: ["generated", "sent", "failed"],
+      default: "generated",
+    },
+    subject: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    html: {
+      type: String,
+      default: null,
+    },
+    text: {
+      type: String,
+      default: null,
+    },
+    sent_at: {
+      type: Date,
+      default: null,
+    },
+    recipients: {
+      type: [deliveryRecipientSchema],
+      default: [],
+    },
+  },
+  { _id: false }
+);
+
 const reportRunSchema = new mongoose.Schema(
   {
     agency_id: {
@@ -98,6 +218,18 @@ const reportRunSchema = new mongoose.Schema(
     },
     email_html: {
       type: String,
+      default: null,
+    },
+    internal_report: {
+      type: internalReportArtifactSchema,
+      default: null,
+    },
+    client_report: {
+      type: reportEmailArtifactSchema,
+      default: null,
+    },
+    engine_output: {
+      type: mongoose.Schema.Types.Mixed,
       default: null,
     },
     ran_at: {

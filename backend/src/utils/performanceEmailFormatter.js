@@ -85,7 +85,7 @@ function renderNormalPerformanceReportEmail(narrative, meta = {}) {
             ${renderDetailsEvidenceBlock(narrative, theme, {
               includeMetricSnapshot,
             })}
-            ${renderDiagnosticsBlock(narrative)}
+            ${meta.includeDiagnostics === false ? "" : renderDiagnosticsBlock(narrative)}
             ${renderFooter(meta)}`;
 
   return renderEmailDocument(meta, preheader, content);
@@ -109,7 +109,7 @@ function renderDataIssueReportEmail(narrative, meta = {}) {
               fallback: true,
               includeMetricSnapshot,
             })}
-            ${renderDiagnosticsBlock(narrative)}
+            ${meta.includeDiagnostics === false ? "" : renderDiagnosticsBlock(narrative)}
             ${renderFooter(meta)}`;
 
   return renderEmailDocument(meta, preheader, content);

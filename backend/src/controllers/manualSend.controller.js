@@ -29,29 +29,10 @@ export const manualSendReport = async (req, res) => {
       triggerType: "manual",
     });
 
-    logAction(SCOPE, "MANUAL_SEND_N8N_TRIGGER", {
-      reportId,
-      recipients: reportData.recipients,
-      adAccountId: reportData.adAccountId,
-    }, "magenta");
-
-    const n8nResponse = await fetch(
-      "https://primary-production-dece4.up.railway.app/webhook/68991387-5464-42a6-a046-82379fb0c9c9",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(reportData),
-      }
-    );
-
-    if (!n8nResponse.ok) {
-      throw new Error(`n8n webhook failed: ${n8nResponse.status}`);
-    }
-
     logAction(SCOPE, "MANUAL_SEND_SUCCESS", {
       reportId,
+      internalStatus: reportData.internalReport?.status,
+      clientStatus: reportData.clientReport?.status,
     }, "green");
 
     return res.json({

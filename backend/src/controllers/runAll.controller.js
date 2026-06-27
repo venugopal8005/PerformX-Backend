@@ -35,6 +35,9 @@ export const runAllReports = async (req, res) => {
         signals: item.signals,
         emailSubject: item.emailSubject,
         emailHtml: item.emailHtml,
+        internalReport: item.internalReport,
+        clientReport: item.clientReport,
+        reportRunId: item.reportRun?._id,
         comparison: item.comparison,
       })),
     });

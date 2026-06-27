@@ -4,6 +4,11 @@ import { Signal } from "../models/Signal.js";
 import { recordActivity } from "../services/activityRecorder.service.js";
 import { logAction, logError } from "../utils/controllerLogger.js";
 import { getNextRunAt, normalizeReportSchedule } from "../utils/reportSchedule.js";
+import {
+  normalizeClientDeliveryMode,
+  normalizeEmailList,
+  normalizeSafetySettings,
+} from "../services/reportDelivery.service.js";
 
 const SCOPE = "Reports";
 const DEFAULT_REPORT_NAME = "Meta Ads Monitor";
@@ -20,6 +25,9 @@ const normalizeRecipients = (value, fallbackEmail) => {
     .map((email) => String(email || "").trim().toLowerCase())
     .filter(Boolean);
 };
+
+const readBool = (value, fallback) =>
+  value === undefined || value === null ? fallback : Boolean(value);
 
 const normalizeStatus = (value) => {
   const status = String(value || "").trim().toLowerCase();
@@ -66,6 +74,12 @@ export const createReport = async (req, res) => {
     const formData = req.body.formData || req.body || {};
     const clientId = formData.client_id || formData.clientId;
     const recipients = normalizeRecipients(formData.recipients, formData.email);
+    const internalRecipients = normalizeEmailList(
+      formData.internal_recipients || formData.internalRecipients || recipients
+    );
+    const clientRecipients = normalizeEmailList(
+      formData.client_recipients || formData.clientRecipients || []
+    );
     const type = formData.type || formData.frequency || "daily";
     const name = normalizeReportName(formData.name);
     let scheduleConfig;
@@ -77,10 +91,10 @@ export const createReport = async (req, res) => {
       formData,
     }, "blue");
 
-    if (!clientId || recipients.length === 0) {
+    if (!clientId || internalRecipients.length === 0) {
       return res.status(400).json({
         success: false,
-        message: "client_id and at least one recipient are required",
+        message: "client_id and at least one internal recipient are required",
       });
     }
 
@@ -105,6 +119,22 @@ export const createReport = async (req, res) => {
       status: normalizeStatus(formData.status),
       severity: formData.severity || "low",
       recipients,
+      internal_recipients: internalRecipients,
+      client_recipients: clientRecipients,
+      generate_client_report: readBool(
+        formData.generate_client_report ?? formData.generateClientReport,
+        true
+      ),
+      generate_internal_report: readBool(
+        formData.generate_internal_report ?? formData.generateInternalReport,
+        true
+      ),
+      client_delivery_mode: normalizeClientDeliveryMode(
+        formData.client_delivery_mode || formData.clientDeliveryMode
+      ),
+      safety_settings: normalizeSafetySettings(
+        formData.safety_settings || formData.safetySettings
+      ),
       monitored_campaigns: normalizeCampaigns(formData.monitored_campaigns),
       schedule: scheduleConfig.schedule,
       last_summary: null,
@@ -125,8 +155,25 @@ export const createReport = async (req, res) => {
       metadata: {
         report_type: report.type,
         recipients,
+        internal_recipients: internalRecipients,
+        client_recipients: clientRecipients,
+        client_delivery_mode: report.client_delivery_mode,
       },
     });
+
+    logAction(SCOPE, "CREATE_REPORT_SUCCESS", {
+      agencyId,
+      userId,
+      reportId: report._id,
+      clientId,
+      name: report.name,
+      type: report.type,
+      status: report.status,
+      clientDeliveryMode: report.client_delivery_mode,
+      internalRecipientCount: internalRecipients.length,
+      clientRecipientCount: clientRecipients.length,
+      safetySettings: report.safety_settings,
+    }, "green");
 
     return res.status(201).json({
       success: true,
@@ -156,6 +203,12 @@ export const startReport = async (req, res) => {
         message: "reportId required",
       });
     }
+
+    logAction(SCOPE, "START_REPORT_REQUEST", {
+      agencyId,
+      userId,
+      reportId,
+    }, "blue");
 
     const report = await Report.findOne({
       _id: reportId,
@@ -187,6 +240,15 @@ export const startReport = async (req, res) => {
       },
     });
 
+    logAction(SCOPE, "START_REPORT_SUCCESS", {
+      agencyId,
+      userId,
+      reportId: report._id,
+      clientId: report.client_id,
+      nextRunAt: report.next_run_at,
+      status: report.status,
+    }, "green");
+
     return res.status(200).json({
       success: true,
       message: "Report started",
@@ -214,8 +276,27 @@ export const getReports = async (req, res) => {
     };
 
     const reports = await Report.find(query).sort({ createdAt: -1 });
+    const latestRuns = await ReportRun.find({
+      agency_id: agencyId,
+      report_id: { $in: reports.map((report) => report._id) },
+    })
+      .sort({ ran_at: -1 })
+      .lean();
+    const latestRunByReportId = new Map();
 
-    return res.json(reports);
+    latestRuns.forEach((run) => {
+      const reportId = run.report_id?.toString?.() || String(run.report_id);
+      if (!latestRunByReportId.has(reportId)) {
+        latestRunByReportId.set(reportId, run);
+      }
+    });
+
+    return res.json(
+      reports.map((report) => ({
+        ...report.toObject(),
+        latest_run: latestRunByReportId.get(report._id.toString()) || null,
+      }))
+    );
   } catch (err) {
     logError(SCOPE, "GET_REPORTS_FAILED", err);
 
@@ -324,6 +405,20 @@ export const updateReport = async (req, res) => {
       });
     }
 
+    logAction(SCOPE, "UPDATE_REPORT_REQUEST", {
+      agencyId,
+      userId,
+      reportId,
+      updateKeys: Object.keys(updates || {}),
+      clientDeliveryMode: updates.client_delivery_mode || updates.clientDeliveryMode,
+      internalRecipientCount: normalizeEmailList(
+        updates.internal_recipients || updates.internalRecipients || []
+      ).length,
+      clientRecipientCount: normalizeEmailList(
+        updates.client_recipients || updates.clientRecipients || []
+      ).length,
+    }, "blue");
+
     const report = await Report.findOne({
       _id: reportId,
       agency_id: agencyId,
@@ -344,6 +439,54 @@ export const updateReport = async (req, res) => {
 
     if (updates.recipients !== undefined || updates.email !== undefined) {
       report.recipients = normalizeRecipients(updates.recipients, updates.email);
+      if (updates.internal_recipients === undefined && updates.internalRecipients === undefined) {
+        report.internal_recipients = report.recipients;
+      }
+    }
+
+    if (updates.internal_recipients !== undefined || updates.internalRecipients !== undefined) {
+      report.internal_recipients = normalizeEmailList(
+        updates.internal_recipients || updates.internalRecipients
+      );
+      report.recipients = report.internal_recipients;
+    }
+
+    if (updates.client_recipients !== undefined || updates.clientRecipients !== undefined) {
+      report.client_recipients = normalizeEmailList(
+        updates.client_recipients || updates.clientRecipients
+      );
+    }
+
+    if (
+      updates.generate_client_report !== undefined ||
+      updates.generateClientReport !== undefined
+    ) {
+      report.generate_client_report = readBool(
+        updates.generate_client_report ?? updates.generateClientReport,
+        true
+      );
+    }
+
+    if (
+      updates.generate_internal_report !== undefined ||
+      updates.generateInternalReport !== undefined
+    ) {
+      report.generate_internal_report = readBool(
+        updates.generate_internal_report ?? updates.generateInternalReport,
+        true
+      );
+    }
+
+    if (updates.client_delivery_mode !== undefined || updates.clientDeliveryMode !== undefined) {
+      report.client_delivery_mode = normalizeClientDeliveryMode(
+        updates.client_delivery_mode || updates.clientDeliveryMode
+      );
+    }
+
+    if (updates.safety_settings !== undefined || updates.safetySettings !== undefined) {
+      report.safety_settings = normalizeSafetySettings(
+        updates.safety_settings || updates.safetySettings
+      );
     }
 
     if (updates.monitored_campaigns !== undefined) {
@@ -392,6 +535,21 @@ export const updateReport = async (req, res) => {
         severity: "stable",
       });
     }
+
+    logAction(SCOPE, "UPDATE_REPORT_SUCCESS", {
+      agencyId,
+      userId,
+      reportId: report._id,
+      clientId: report.client_id,
+      name: report.name,
+      type: report.type,
+      status: report.status,
+      clientDeliveryMode: report.client_delivery_mode,
+      internalRecipientCount: report.internal_recipients?.length || 0,
+      clientRecipientCount: report.client_recipients?.length || 0,
+      nextRunAt: report.next_run_at,
+      safetySettings: report.safety_settings,
+    }, "green");
 
     return res.status(200).json({
       success: true,

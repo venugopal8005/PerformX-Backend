@@ -11,7 +11,15 @@ import activityRouter from "./routes/activities.routes.js";
 import clientRouter from "./routes/clients.routes.js";
 import signalRouter from "./routes/signals.routes.js";
 import settingsRouter from "./routes/settings.routes.js";
+import invitesRouter from "./routes/invites.routes.js";
+import workspacesRouter from "./routes/workspaces.routes.js";
+import reportRunsRouter from "./routes/reportRuns.routes.js";
 import { startN8NScheduler } from "./jobs/n8nScheduler.js";
+import {
+  WorkspaceInvite,
+  WorkspaceMember,
+  WorkspaceSettings,
+} from "./models/index.js";
 
 startN8NScheduler();
 const app = express();
@@ -32,6 +40,9 @@ app.use("/api/clients", clientRouter);
 app.use("/api/signals", signalRouter);
 app.use("/api/activities", activityRouter);
 app.use("/api/settings", settingsRouter);
+app.use("/api/invites", invitesRouter);
+app.use("/api/workspaces", workspacesRouter);
+app.use("/api/report-runs", reportRunsRouter);
 
 // db
 try {
@@ -43,7 +54,17 @@ try {
 }
 
 // auth module
-initAuth({ app, db: mongoose });
+initAuth({
+  app,
+  db: mongoose,
+  options: {
+    models: {
+      WorkspaceInvite,
+      WorkspaceMember,
+      WorkspaceSettings,
+    },
+  },
+});
 
 // health check
 app.get("/api/health", (req, res) => {

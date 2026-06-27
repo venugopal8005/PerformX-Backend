@@ -20,6 +20,8 @@ const hashToken = (token) => crypto.createHash("sha256").update(token).digest("h
 const generateRawToken = () => crypto.randomBytes(32).toString("base64url");
 const getClientOrigin = () => process.env.CLIENT_ORIGIN || "http://localhost:5173";
 const inviteExpiry = () => new Date(Date.now() + INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
+const idsMatch = (left, right) =>
+  left && right && left.toString() === right.toString();
 
 const memberName = (user) => user?.full_name || user?.fullName || "Team member";
 
@@ -92,7 +94,7 @@ const expireOldInvites = (workspaceId) =>
   );
 
 const buildInviteUrl = (token) =>
-  `${getClientOrigin()}/accept-invite?token=${encodeURIComponent(token)}`;
+  `${getClientOrigin()}/invite/${encodeURIComponent(token)}`;
 
 const deliverInvite = async ({ invite, rawToken, workspace, inviter }) =>
   sendWorkspaceInviteEmail({
@@ -138,11 +140,25 @@ export const getTeamSettings = async (req, res) => {
 };
 
 export const createWorkspaceInvite = async (req, res) => {
-  const workspaceId = req.user?.agencyId;
+  const workspaceId = req.params.workspaceId || req.user?.agencyId;
   const userId = getUserId(req);
   const email = normalizeEmail(req.body.email);
 
   try {
+    const ownerMembership = await WorkspaceMember.findOne({
+      workspace_id: workspaceId,
+      user_id: userId,
+      role: "owner",
+      status: "active",
+    });
+
+    if (!ownerMembership) {
+      return res.status(403).json({
+        success: false,
+        message: "Only workspace owners can send invitations.",
+      });
+    }
+
     if (!isValidEmail(email)) {
       return res.status(400).json({
         success: false,
@@ -222,6 +238,7 @@ export const createWorkspaceInvite = async (req, res) => {
       success: true,
       message: `Invitation sent to ${email}.`,
       invite: serializeInvite(invite),
+      inviteLink: buildInviteUrl(rawToken),
     });
   } catch (err) {
     return res.status(err.status || 500).json({
@@ -313,7 +330,7 @@ export const revokeWorkspaceInvite = async (req, res) => {
 
 export const verifyWorkspaceInvite = async (req, res) => {
   try {
-    const token = String(req.query.token || "").trim();
+    const token = String(req.params.token || req.query.token || "").trim();
     if (!token) {
       return res.status(400).json({
         success: false,
@@ -372,7 +389,7 @@ export const verifyWorkspaceInvite = async (req, res) => {
 
 export const acceptWorkspaceInvite = async (req, res) => {
   try {
-    const token = String(req.body.token || "").trim();
+    const token = String(req.params.token || req.body.token || "").trim();
     if (!token) {
       return res.status(400).json({
         success: false,
@@ -384,20 +401,10 @@ export const acceptWorkspaceInvite = async (req, res) => {
       token_hash: hashToken(token),
     });
 
-    if (!invite || invite.status !== "pending") {
+    if (!invite) {
       return res.status(400).json({
         success: false,
         message: "This invitation is no longer available.",
-      });
-    }
-
-    if (invite.expires_at <= new Date()) {
-      invite.status = "expired";
-      await invite.save();
-
-      return res.status(400).json({
-        success: false,
-        message: "This invitation has expired. Ask the owner to resend it.",
       });
     }
 
@@ -413,7 +420,67 @@ export const acceptWorkspaceInvite = async (req, res) => {
       return res.status(403).json({
         success: false,
         invite_email: invite.email,
-        message: `This invitation was sent to ${invite.email}. Please sign in with that email to accept it.`,
+        message: "This invite was sent to another email.",
+      });
+    }
+
+    if (invite.status === "pending" && invite.expires_at <= new Date()) {
+      invite.status = "expired";
+      await invite.save();
+
+      return res.status(400).json({
+        success: false,
+        message: "This invitation has expired. Ask the owner to resend it.",
+      });
+    }
+
+    if (invite.status === "revoked") {
+      return res.status(400).json({
+        success: false,
+        message: "This invitation was revoked. Ask the owner for a new invite.",
+      });
+    }
+
+    if (invite.status === "expired") {
+      return res.status(400).json({
+        success: false,
+        message: "This invitation has expired. Ask the owner to resend it.",
+      });
+    }
+
+    if (invite.status === "accepted") {
+      const existingMembership = await WorkspaceMember.findOne({
+        workspace_id: invite.workspace_id,
+        user_id: user._id,
+        status: "active",
+      });
+
+      if (
+        existingMembership &&
+        (!invite.accepted_by_user_id || idsMatch(invite.accepted_by_user_id, user._id))
+      ) {
+        const [agency, workspaceSettings] = await Promise.all([
+          Agency.findById(invite.workspace_id),
+          WorkspaceSettings.findOne({ agency_id: invite.workspace_id }).select("logo_url"),
+        ]);
+        const tokenValue = generateToken({
+          userId: user._id.toString(),
+          agencyId: agency._id.toString(),
+          role: existingMembership.role,
+        });
+
+        res.cookie("token", tokenValue, cookieOptions);
+
+        return res.json({
+          success: true,
+          message: "Invitation already accepted.",
+          user: authUser(user, agency, existingMembership.role, workspaceSettings),
+        });
+      }
+
+      return res.status(409).json({
+        success: false,
+        message: "This invite has already been accepted.",
       });
     }
 
@@ -441,10 +508,6 @@ export const acceptWorkspaceInvite = async (req, res) => {
     invite.accepted_by_user_id = user._id;
     invite.accepted_at = new Date();
     await invite.save();
-
-    user.agencyId = invite.workspace_id;
-    user.role = membership.role;
-    await user.save();
 
     const [agency, workspaceSettings] = await Promise.all([
       Agency.findById(invite.workspace_id),

@@ -39,6 +39,9 @@ export const runReport = async (req, res) => {
       signals: result.signals,
       emailSubject: result.emailSubject,
       emailHtml: result.emailHtml,
+      internalReport: result.internalReport,
+      clientReport: result.clientReport,
+      reportRun: result.reportRun,
       comparison: result.comparison,
     });
   } catch (err) {

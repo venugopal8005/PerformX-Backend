@@ -1,7 +1,6 @@
-import { Agency, User } from "../../index.js";
+import { Agency, User, getAuthModel } from "../../index.js";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
-import mongoose from "mongoose";
 import { OAuth2Client } from "google-auth-library";
 import { generateToken } from "../services/token.service.js";
 import { cookieOptions } from "../config/cookieOptions.js";
@@ -92,14 +91,11 @@ const resolveGoogleProfile = async (body = {}) => {
   };
 };
 
-const buildAuthPayload = (user) => ({
+const buildAuthPayload = (user, overrides = {}) => ({
   userId: user._id.toString(),
-  agencyId: getAgencyId(user)?.toString(),
-  role: user.role,
+  agencyId: (overrides.agencyId || getAgencyId(user))?.toString(),
+  role: overrides.role || user.role,
 });
-
-const getAgencyRefPath = () =>
-  User.schema.path("agencyId") ? "agencyId" : "agency_id";
 
 const getAgencyId = (user) => {
   const agency = user?.agencyId || user?.agency_id;
@@ -122,9 +118,10 @@ const googleIdQueryConditions = (googleId) => {
 };
 
 const getWorkspaceSettings = async (agencyId) => {
-  if (!agencyId || !mongoose.models.WorkspaceSettings) return null;
+  const WorkspaceSettings = getAuthModel("WorkspaceSettings");
+  if (!agencyId || !WorkspaceSettings) return null;
 
-  return mongoose.models.WorkspaceSettings.findOne({ agency_id: agencyId })
+  return WorkspaceSettings.findOne({ agency_id: agencyId })
     .select("logo_url")
     .lean();
 };
@@ -141,11 +138,12 @@ const toAuthAgency = (agency, workspaceSettings = null) => {
   };
 };
 
-const toAuthUser = (user, agency, workspaceSettings = null) => {
+const toAuthUser = (user, agency, workspaceSettings = null, overrides = {}) => {
   const populatedAgency =
     user.agencyId && typeof user.agencyId === "object" && user.agencyId.name
       ? user.agencyId
       : agency;
+  const activeAgencyId = overrides.agencyId || getAgencyId(user);
 
   return {
     id: user._id,
@@ -153,27 +151,41 @@ const toAuthUser = (user, agency, workspaceSettings = null) => {
     email: user.email,
     avatar: getUserField(user, "avatar", "avatar_url"),
     avatar_url: getUserField(user, "avatar", "avatar_url"),
-    role: user.role,
-    agencyId: getAgencyId(user),
+    role: overrides.role || user.role,
+    agencyId: activeAgencyId,
     agency: toAuthAgency(populatedAgency, workspaceSettings),
   };
 };
 
-const sendAuthResponse = async (res, status, user, message, agency = null) => {
-  const token = generateToken(buildAuthPayload(user));
+const sendAuthResponse = async (
+  res,
+  status,
+  user,
+  message,
+  agency = null,
+  overrides = {}
+) => {
+  const activeAgencyId = overrides.agencyId || getAgencyId(user);
+  const activeRole = overrides.role || user.role;
+  const token = generateToken(
+    buildAuthPayload(user, { agencyId: activeAgencyId, role: activeRole })
+  );
   const authAgency =
     agency ||
     (user.agencyId && typeof user.agencyId === "object" && user.agencyId.name
       ? user.agencyId
-      : await Agency.findById(getAgencyId(user)).select("name slug"));
-  const workspaceSettings = await getWorkspaceSettings(getAgencyId(user));
+      : await Agency.findById(activeAgencyId).select("name slug"));
+  const workspaceSettings = await getWorkspaceSettings(activeAgencyId);
 
   res.cookie("token", token, cookieOptions);
 
   return res.status(status).json({
     message,
     token,
-    user: toAuthUser(user, authAgency, workspaceSettings),
+    user: toAuthUser(user, authAgency, workspaceSettings, {
+      agencyId: activeAgencyId,
+      role: activeRole,
+    }),
   });
 };
 
@@ -186,7 +198,7 @@ const setAgencyOwner = async (agency, userId) => {
 };
 
 const ensureOwnerMembership = async (agency, user) => {
-  const WorkspaceMember = mongoose.models.WorkspaceMember;
+  const WorkspaceMember = getAuthModel("WorkspaceMember");
   if (!WorkspaceMember || !agency?._id || !user?._id) return null;
 
   return WorkspaceMember.findOneAndUpdate(
@@ -210,27 +222,89 @@ const ensureOwnerMembership = async (agency, user) => {
   );
 };
 
-const findUsableInvite = async (rawToken) => {
-  const WorkspaceInvite = mongoose.models.WorkspaceInvite;
-  if (!WorkspaceInvite || !rawToken) return null;
+const inviteFailure = (status, message, extra = {}) => ({
+  error: true,
+  status,
+  message,
+  ...extra,
+});
 
-  const invite = await WorkspaceInvite.findOne({
-    token_hash: hashInviteToken(rawToken),
+const sendInviteFailure = (res, result) =>
+  res.status(result.status || 400).json({
+    message: result.message || "Could not use this invitation.",
+    ...(result.invite_email ? { invite_email: result.invite_email } : {}),
   });
 
-  if (!invite || invite.status !== "pending") return null;
+const findInviteForAuth = async (rawToken, { acceptedUser = null } = {}) => {
+  const token = normalizeText(rawToken);
+  const WorkspaceInvite = getAuthModel("WorkspaceInvite");
 
-  if (invite.expires_at <= new Date()) {
-    invite.status = "expired";
-    await invite.save();
-    return null;
+  if (!token) {
+    return inviteFailure(400, "Invite token is required.");
   }
 
-  return invite;
+  if (!WorkspaceInvite) {
+    return inviteFailure(500, "Invite service is not configured.");
+  }
+
+  const invite = await WorkspaceInvite.findOne({
+    token_hash: hashInviteToken(token),
+  });
+
+  if (!invite) {
+    return inviteFailure(404, "Invitation link is invalid.");
+  }
+
+  if (invite.status === "pending" && invite.expires_at <= new Date()) {
+    invite.status = "expired";
+    await invite.save();
+  }
+
+  if (invite.status === "pending") {
+    return { invite };
+  }
+
+  if (invite.status === "revoked") {
+    return inviteFailure(
+      400,
+      "This invitation was revoked. Ask the owner for a new invite."
+    );
+  }
+
+  if (invite.status === "expired") {
+    return inviteFailure(
+      400,
+      "This invitation has expired. Ask the owner to resend it."
+    );
+  }
+
+  if (invite.status === "accepted") {
+    const WorkspaceMember = getAuthModel("WorkspaceMember");
+    const membership =
+      acceptedUser && WorkspaceMember
+        ? await WorkspaceMember.findOne({
+            workspace_id: invite.workspace_id,
+            user_id: acceptedUser._id,
+            status: "active",
+          })
+        : null;
+
+    if (
+      membership &&
+      (!invite.accepted_by_user_id ||
+        idsMatch(invite.accepted_by_user_id, acceptedUser._id))
+    ) {
+      return { invite, membership, alreadyAccepted: true };
+    }
+
+    return inviteFailure(409, "This invite has already been accepted.");
+  }
+
+  return inviteFailure(400, "This invitation is no longer available.");
 };
 
 const acceptInviteForUser = async (invite, user) => {
-  const WorkspaceMember = mongoose.models.WorkspaceMember;
+  const WorkspaceMember = getAuthModel("WorkspaceMember");
   if (!WorkspaceMember || !invite || !user) return null;
 
   const membership = await WorkspaceMember.findOneAndUpdate(
@@ -343,14 +417,17 @@ export const register = async (req, res) => {
     }
 
     if (inviteToken) {
-      const invite = await findUsableInvite(inviteToken);
-      if (!invite) {
-        return res.status(400).json({ message: "Invitation is invalid or expired" });
+      const inviteResult = await findInviteForAuth(inviteToken);
+      if (inviteResult.error) {
+        return sendInviteFailure(res, inviteResult);
       }
+
+      const { invite } = inviteResult;
 
       if (invite.email !== email) {
         return res.status(403).json({
-          message: `This invitation was sent to ${invite.email}. Please sign up with that email to accept it.`,
+          invite_email: invite.email,
+          message: "This invite was sent to another email.",
         });
       }
 
@@ -449,14 +526,19 @@ export const googleSignup = async (req, res) => {
     const existingUser = await findGoogleAuthUser({ email, googleId });
 
     if (inviteToken) {
-      const invite = await findUsableInvite(inviteToken);
-      if (!invite) {
-        return res.status(400).json({ message: "Invitation is invalid or expired" });
+      const inviteResult = await findInviteForAuth(inviteToken, {
+        acceptedUser: existingUser,
+      });
+      if (inviteResult.error) {
+        return sendInviteFailure(res, inviteResult);
       }
+
+      const { invite } = inviteResult;
 
       if (invite.email !== email) {
         return res.status(403).json({
-          message: `This invitation was sent to ${invite.email}. Please sign in with that email to accept it.`,
+          invite_email: invite.email,
+          message: "This invite was sent to another email.",
         });
       }
 
@@ -464,17 +546,31 @@ export const googleSignup = async (req, res) => {
 
       if (existingUser) {
         applyGoogleProfile(existingUser, profile);
-        existingUser.role = invite.role;
-        existingUser.agencyId = invite.workspace_id;
         await existingUser.save();
-        await acceptInviteForUser(invite, existingUser);
+
+        if (inviteResult.alreadyAccepted) {
+          return sendAuthResponse(
+            res,
+            200,
+            existingUser,
+            "Invitation already accepted",
+            agency,
+            {
+              agencyId: invite.workspace_id,
+              role: inviteResult.membership?.role || invite.role,
+            }
+          );
+        }
+
+        const membership = await acceptInviteForUser(invite, existingUser);
 
         return sendAuthResponse(
           res,
           200,
           existingUser,
           "Invitation accepted successfully",
-          agency
+          agency,
+          { agencyId: invite.workspace_id, role: membership?.role || invite.role }
         );
       }
 
@@ -563,18 +659,28 @@ export const me = async (req, res) => {
   }
 
   try {
-    const user = await User.findById(req.user.userId || req.user.id).populate(
-      getAgencyRefPath(),
-      "name slug"
-    );
+    const user = await User.findById(req.user.userId || req.user.id);
 
     if (!user) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const workspaceSettings = await getWorkspaceSettings(getAgencyId(user));
+    const activeAgencyId = req.user.agencyId || getAgencyId(user);
+    const [activeAgency, workspaceSettings] = await Promise.all([
+      Agency.findById(activeAgencyId).select("name slug"),
+      getWorkspaceSettings(activeAgencyId),
+    ]);
 
-    res.json({ user: toAuthUser(user, null, workspaceSettings) });
+    if (!activeAgency) {
+      return res.status(401).json({ message: "Workspace not found" });
+    }
+
+    res.json({
+      user: toAuthUser(user, activeAgency, workspaceSettings, {
+        agencyId: activeAgencyId,
+        role: req.user.role || user.role,
+      }),
+    });
   } catch (err) {
     console.error("Auth check failed", err);
     res.status(500).json({ message: "Server error" });

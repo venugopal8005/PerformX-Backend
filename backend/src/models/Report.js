@@ -62,6 +62,28 @@ const scheduleSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const safetySettingsSchema = new mongoose.Schema(
+  {
+    hold_client_report_on_low_trust: {
+      type: Boolean,
+      default: true,
+    },
+    hold_client_report_on_missing_metrics: {
+      type: Boolean,
+      default: true,
+    },
+    hold_client_report_on_insufficient_data: {
+      type: Boolean,
+      default: true,
+    },
+    notify_team_when_held: {
+      type: Boolean,
+      default: true,
+    },
+  },
+  { _id: false }
+);
+
 const reportSchema = new mongoose.Schema(
   {
     agency_id: {
@@ -121,6 +143,58 @@ const reportSchema = new mongoose.Schema(
         },
       ],
       default: [],
+    },
+    internal_recipients: {
+      type: [
+        {
+          type: String,
+          trim: true,
+          lowercase: true,
+          validate: {
+            validator(value) {
+              return EMAIL_PATTERN.test(value);
+            },
+            message: "internal recipient email is invalid",
+          },
+        },
+      ],
+      default: [],
+    },
+    client_recipients: {
+      type: [
+        {
+          type: String,
+          trim: true,
+          lowercase: true,
+          validate: {
+            validator(value) {
+              return EMAIL_PATTERN.test(value);
+            },
+            message: "client recipient email is invalid",
+          },
+        },
+      ],
+      default: [],
+    },
+    generate_client_report: {
+      type: Boolean,
+      default: true,
+      required: true,
+    },
+    generate_internal_report: {
+      type: Boolean,
+      default: true,
+      required: true,
+    },
+    client_delivery_mode: {
+      type: String,
+      enum: ["generate_only", "auto_send", "approval_required"],
+      default: "generate_only",
+      required: true,
+    },
+    safety_settings: {
+      type: safetySettingsSchema,
+      default: () => ({}),
     },
     monitored_campaigns: {
       type: [monitoredCampaignSchema],
