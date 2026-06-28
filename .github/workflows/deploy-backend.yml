@@ -1,0 +1,46 @@
+name: Deploy Backend to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy backend
+        run: |
+          ssh -i ~/.ssh/ec2_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" << 'EOF'
+            set -e
+
+            cd ~/narrative/backend
+
+            echo "Pulling latest backend code..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "Installing auth-module dependencies..."
+            cd ~/narrative/backend/auth-module
+            npm install
+
+            echo "Installing backend dependencies..."
+            cd ~/narrative/backend/backend
+            npm install
+
+            echo "Restarting PM2 backend..."
+            pm2 restart narrative-backend
+
+            echo "Saving PM2 state..."
+            pm2 save
+
+            echo "Backend deployment complete."
+          EOF
