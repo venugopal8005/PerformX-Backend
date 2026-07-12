@@ -24,6 +24,8 @@ export const generateMetaReport = async (reportId, options = {}) => {
     emailHtml: result.emailHtml,
     internalReport: result.internalReport,
     clientReport: result.clientReport,
+    notification: result.notification,
+    delivery: result.delivery,
     comparison: result.comparison,
   };
 };

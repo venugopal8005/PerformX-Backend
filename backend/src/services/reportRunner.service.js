@@ -470,7 +470,12 @@ export const runReport = async (reportId, options = {}) => {
   });
   const clientOrigin = process.env.CLIENT_ORIGIN || "http://localhost:5173";
   const reportUrl = `${clientOrigin}/reports/${report._id}`;
-  const { internalReport, clientReport } = await processReportDelivery({
+  const {
+    internalReport,
+    clientReport,
+    notification,
+    delivery,
+  } = await processReportDelivery({
     report,
     narrative,
     comparison,
@@ -509,6 +514,8 @@ export const runReport = async (reportId, options = {}) => {
     signalCount: signals.length,
     internalReportStatus: internalReport?.status,
     clientReportStatus: clientReport?.status,
+    notificationStatus: notification?.status || "not_required",
+    deliveryConfirmed: delivery?.confirmed,
     clientDeliveryMode: clientReport?.delivery_mode,
     clientSafetyPassed: clientReport?.safety?.passed,
     nextRunAt: report.next_run_at,
@@ -531,6 +538,8 @@ export const runReport = async (reportId, options = {}) => {
     emailHtml,
     internalReport,
     clientReport,
+    notification,
+    delivery,
     clientName,
     recipients:
       internalReport?.recipients?.map((recipient) => recipient.email) ||

@@ -172,6 +172,8 @@ export const approveAndSendClientReport = async (req, res) => {
       });
     }
 
+    const reviewableStatus = clientReport.status;
+
     const client = await Client.findOne({
       _id: report.client_id,
       agency_id: agencyId,
@@ -267,6 +269,7 @@ export const approveAndSendClientReport = async (req, res) => {
       clientReport.approved_at = new Date();
       clientReport.approved_by = userId;
       clientReport.recipients = delivery.recipients;
+      clientReport.delivery_error = null;
 
       if (!safety.passed && overrideSafety) {
         clientReport.safetyOverride = true;
@@ -293,7 +296,11 @@ export const approveAndSendClientReport = async (req, res) => {
         reportRun,
       });
     } catch (err) {
-      clientReport.status = "failed";
+      clientReport.status = safety.passed ? reviewableStatus : "held_for_review";
+      clientReport.delivery_error = {
+        code: err.code || "CLIENT_REPORT_DELIVERY_FAILED",
+        category: err.category || "delivery",
+      };
       clientReport.recipients = toRecipientStatus(recipients, "failed", err.message);
       reportRun.markModified("client_report");
       await reportRun.save();

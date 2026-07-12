@@ -3,9 +3,9 @@ import {
 } from "../utils/performanceEmailFormatter.js";
 import { logAction, logError } from "../utils/controllerLogger.js";
 
-const DEFAULT_WEBHOOK_URL =
-  "https://primary-production-dece4.up.railway.app/webhook/68991387-5464-42a6-a046-82379fb0c9c9";
 const SCOPE = "ReportDelivery";
+const DEFAULT_WEBHOOK_TIMEOUT_MS = 30_000;
+const MAX_WEBHOOK_TIMEOUT_MS = 120_000;
 
 const CLIENT_DELIVERY_MODES = new Set([
   "generate_only",
@@ -283,10 +283,66 @@ export const runClientReportSafetyChecks = ({
   };
 };
 
-const emailWebhookUrl = () =>
-  process.env.REPORT_EMAIL_WEBHOOK_URL ||
-  process.env.MOCK_REPORT_WEBHOOK_URL ||
-  DEFAULT_WEBHOOK_URL;
+const webhookTimeoutMs = () => {
+  const configured = Number(process.env.REPORT_EMAIL_WEBHOOK_TIMEOUT_MS);
+  if (!Number.isFinite(configured) || configured <= 0) {
+    return DEFAULT_WEBHOOK_TIMEOUT_MS;
+  }
+
+  return Math.min(configured, MAX_WEBHOOK_TIMEOUT_MS);
+};
+
+const createDeliveryError = (message, { code, category, status = 502, cause } = {}) => {
+  const error = new Error(message, cause ? { cause } : undefined);
+  error.code = code || "EMAIL_WEBHOOK_FAILED";
+  error.category = category || "unknown";
+  error.status = status;
+  return error;
+};
+
+export const getReportEmailWebhookConfig = () => {
+  const rawUrl = String(process.env.REPORT_EMAIL_WEBHOOK_URL || "").trim();
+
+  if (!rawUrl) {
+    return {
+      configured: false,
+      host: null,
+      url: null,
+      timeoutMs: webhookTimeoutMs(),
+    };
+  }
+
+  try {
+    const parsed = new URL(rawUrl);
+    if (!/^https?:$/.test(parsed.protocol)) throw new Error("Unsupported protocol");
+
+    return {
+      configured: true,
+      host: parsed.host,
+      url: parsed.toString(),
+      timeoutMs: webhookTimeoutMs(),
+    };
+  } catch {
+    return {
+      configured: false,
+      host: null,
+      url: null,
+      timeoutMs: webhookTimeoutMs(),
+      invalid: true,
+    };
+  }
+};
+
+const deliveryLogContext = (reportType, recipients, metadata, webhook) => ({
+  agencyId: metadata.agencyId || null,
+  clientId: metadata.clientId || null,
+  reportId: metadata.reportId || null,
+  reportRunId: metadata.reportRunId || null,
+  reportType,
+  recipientCount: recipients.length,
+  webhookConfigured: webhook.configured,
+  webhookHost: webhook.host,
+});
 
 export const sendReportEmail = async ({
   recipients,
@@ -299,21 +355,46 @@ export const sendReportEmail = async ({
   const cleanedRecipients = normalizeEmailList(recipients);
 
   if (!cleanedRecipients.length) {
-    throw new Error("No recipients selected.");
+    throw createDeliveryError("No recipients selected.", {
+      code: "EMAIL_RECIPIENTS_MISSING",
+      category: "validation",
+      status: 400,
+    });
   }
 
-  logAction(SCOPE, "EMAIL_WEBHOOK_REQUEST", {
+  const webhook = getReportEmailWebhookConfig();
+  const logContext = deliveryLogContext(
     reportType,
-    subject,
-    recipientCount: cleanedRecipients.length,
-    recipients: cleanedRecipients,
+    cleanedRecipients,
     metadata,
-  }, "blue");
+    webhook
+  );
+
+  logAction(SCOPE, "EMAIL_DELIVERY_PREPARED", logContext, "blue");
+
+  if (!webhook.configured) {
+    const error = createDeliveryError(
+      webhook.invalid
+        ? "REPORT_EMAIL_WEBHOOK_URL is invalid."
+        : "REPORT_EMAIL_WEBHOOK_URL is not configured.",
+      {
+        code: webhook.invalid
+          ? "EMAIL_WEBHOOK_URL_INVALID"
+          : "EMAIL_WEBHOOK_NOT_CONFIGURED",
+        category: "configuration",
+        status: 503,
+      }
+    );
+    logError(SCOPE, "EMAIL_DELIVERY_CONFIGURATION_FAILED", error, logContext);
+    throw error;
+  }
 
   let response;
 
   try {
-    response = await fetch(emailWebhookUrl(), {
+    logAction(SCOPE, "EMAIL_WEBHOOK_REQUEST_STARTED", logContext, "cyan");
+
+    response = await fetch(webhook.url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -326,38 +407,57 @@ export const sendReportEmail = async ({
         emailHtml: html,
         html,
         text,
-        reportType,
+        senderName: metadata.senderName || "Narrative",
         ...metadata,
+        reportType,
       }),
+      signal: AbortSignal.timeout(webhook.timeoutMs),
     });
   } catch (err) {
-    logError(SCOPE, "EMAIL_WEBHOOK_NETWORK_FAILED", err, {
-      reportType,
-      subject,
-      recipientCount: cleanedRecipients.length,
-      metadata,
-    });
-    throw err;
-  }
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    const error = new Error(`Email webhook failed: ${response.status}${body ? ` ${body.slice(0, 160)}` : ""}`);
-    logError(SCOPE, "EMAIL_WEBHOOK_RESPONSE_FAILED", error, {
-      reportType,
-      subject,
-      status: response.status,
-      recipientCount: cleanedRecipients.length,
-      metadata,
+    const timedOut = err?.name === "TimeoutError" || err?.name === "AbortError";
+    const error = createDeliveryError(
+      timedOut
+        ? `Email webhook timed out after ${webhook.timeoutMs}ms.`
+        : "Email webhook network request failed.",
+      {
+        code: timedOut ? "EMAIL_WEBHOOK_TIMEOUT" : "EMAIL_WEBHOOK_NETWORK_FAILED",
+        category: timedOut ? "timeout" : "network",
+        status: timedOut ? 504 : 502,
+        cause: err,
+      }
+    );
+    logError(SCOPE, "EMAIL_WEBHOOK_REQUEST_FAILED", error, {
+      ...logContext,
+      errorCategory: error.category,
     });
     throw error;
   }
 
-  logAction(SCOPE, "EMAIL_WEBHOOK_SUCCESS", {
-    reportType,
-    subject,
-    recipientCount: cleanedRecipients.length,
-    metadata,
+  logAction(SCOPE, "EMAIL_WEBHOOK_RESPONSE_RECEIVED", {
+    ...logContext,
+    responseStatus: response.status,
+  }, response.ok ? "green" : "yellow");
+
+  if (!response.ok) {
+    const error = createDeliveryError(
+      `Email webhook returned HTTP ${response.status}.`,
+      {
+        code: "EMAIL_WEBHOOK_RESPONSE_FAILED",
+        category: "response",
+        status: 502,
+      }
+    );
+    logError(SCOPE, "EMAIL_WEBHOOK_RESPONSE_FAILED", error, {
+      ...logContext,
+      responseStatus: response.status,
+      errorCategory: error.category,
+    });
+    throw error;
+  }
+
+  logAction(SCOPE, "EMAIL_DELIVERY_SUCCEEDED", {
+    ...logContext,
+    responseStatus: response.status,
   }, "green");
 
   return {
@@ -419,6 +519,84 @@ const baseReportArtifact = ({ subject, html, text, recipients, deliveryMode }) =
     reasons: [],
     warnings: [],
   },
+});
+
+const notificationArtifact = (status, error = null) => ({
+  status,
+  error,
+});
+
+export const summarizeReportDelivery = ({
+  internalReport,
+  clientReport,
+  notification = null,
+}) => {
+  const failures = [];
+
+  if (internalReport?.status !== "sent") {
+    failures.push({
+      reportType: "internal_report",
+      status: internalReport?.status || "missing",
+      code: internalReport?.delivery_error?.code || "INTERNAL_REPORT_DELIVERY_FAILED",
+      category: internalReport?.delivery_error?.category || "delivery",
+      message:
+        internalReport?.recipients?.find((recipient) => recipient.error)?.error ||
+        "Internal report was not delivered.",
+    });
+  }
+
+  if (clientReport?.status === "failed") {
+    failures.push({
+      reportType: "client_report",
+      status: "failed",
+      code: clientReport?.delivery_error?.code || "CLIENT_REPORT_DELIVERY_FAILED",
+      category: clientReport?.delivery_error?.category || "delivery",
+      message:
+        clientReport.recipients?.find((recipient) => recipient.error)?.error ||
+        "Client report was not delivered.",
+    });
+  }
+
+  if (notification?.status === "failed") {
+    failures.push({
+      reportType: "internal_notification",
+      status: "failed",
+      code: notification.code || "INTERNAL_NOTIFICATION_DELIVERY_FAILED",
+      category: notification.category || "delivery",
+      message: notification.error || "Internal notification was not delivered.",
+    });
+  }
+
+  const clientStatus = clientReport?.status || "not_generated";
+  const clientMessage =
+    clientStatus === "sent"
+      ? " Client report sent."
+      : clientStatus === "awaiting_approval"
+        ? " Client report is awaiting approval."
+        : clientStatus === "held_for_review"
+          ? " Client report was held for review."
+          : clientStatus === "generated"
+            ? " Client report was generated without delivery."
+            : "";
+
+  return {
+    confirmed: failures.length === 0 && internalReport?.status === "sent",
+    failures,
+    internalStatus: internalReport?.status || "missing",
+    clientStatus,
+    notificationStatus: notification?.status || "not_required",
+    message:
+      failures.length > 0
+        ? failures[0].message
+        : `Internal report sent.${clientMessage}`,
+  };
+};
+
+const withDeliverySummary = ({ internalReport, clientReport, notification = null }) => ({
+  internalReport,
+  clientReport,
+  notification,
+  delivery: summarizeReportDelivery({ internalReport, clientReport, notification }),
 });
 
 export const processReportDelivery = async ({
@@ -487,6 +665,10 @@ export const processReportDelivery = async ({
     }, "green");
   } catch (err) {
     internalReport.status = "failed";
+    internalReport.delivery_error = {
+      code: err.code || "INTERNAL_REPORT_DELIVERY_FAILED",
+      category: err.category || "delivery",
+    };
     internalReport.recipients = toRecipientStatus(internalRecipients, "failed", err.message);
     logError(SCOPE, "INTERNAL_REPORT_SEND_FAILED", err, {
       reportId: report._id,
@@ -502,7 +684,7 @@ export const processReportDelivery = async ({
       subject: clientReport.subject,
       recipientCount: clientRecipients.length,
     }, "magenta");
-    return { internalReport, clientReport };
+    return withDeliverySummary({ internalReport, clientReport });
   }
 
   if (deliveryMode === "approval_required") {
@@ -514,22 +696,31 @@ export const processReportDelivery = async ({
       reportUrl,
     }, "yellow");
 
-    notifyInternalTeam({
-      recipients: internalRecipients,
-      subject: `Client Report Ready for Approval - ${clientName} - ${artifacts.dateRange}`,
-      title: "Client report is ready for approval",
-      intro: "Narrative generated the client report and is waiting for approval before sending.",
-      reasons: [],
-      reportUrl,
-      metadata: { ...metadata, reportType: "approval_notification" },
-    }).catch((err) => {
+    let notification;
+    try {
+      await notifyInternalTeam({
+        recipients: internalRecipients,
+        subject: `Client Report Ready for Approval - ${clientName} - ${artifacts.dateRange}`,
+        title: "Client report is ready for approval",
+        intro: "Narrative generated the client report and is waiting for approval before sending.",
+        reasons: [],
+        reportUrl,
+        metadata: { ...metadata, notificationType: "approval_notification" },
+      });
+      notification = notificationArtifact("sent");
+    } catch (err) {
+      notification = {
+        ...notificationArtifact("failed", err.message),
+        code: err.code,
+        category: err.category,
+      };
       logError(SCOPE, "APPROVAL_NOTIFICATION_FAILED", err, {
         reportId: report._id,
         recipientCount: internalRecipients.length,
       });
-    });
+    }
 
-    return { internalReport, clientReport };
+    return withDeliverySummary({ internalReport, clientReport, notification });
   }
 
   const safety = runClientReportSafetyChecks({
@@ -559,25 +750,34 @@ export const processReportDelivery = async ({
       notifyTeam: safetySettings.notify_team_when_held,
     }, "yellow");
 
+    let notification;
     if (safetySettings.notify_team_when_held) {
-      notifyInternalTeam({
-        recipients: internalRecipients,
-        subject: `Client Report Held - ${clientName} - ${artifacts.dateRange}`,
-        title: "Client report was held",
-        intro: "Narrative did not send the client report because safety checks failed.",
-        reasons: safety.reasons,
-        reportUrl,
-        metadata: { ...metadata, reportType: "held_notification" },
-      }).catch((err) => {
+      try {
+        await notifyInternalTeam({
+          recipients: internalRecipients,
+          subject: `Client Report Held - ${clientName} - ${artifacts.dateRange}`,
+          title: "Client report was held",
+          intro: "Narrative did not send the client report because safety checks failed.",
+          reasons: safety.reasons,
+          reportUrl,
+          metadata: { ...metadata, notificationType: "held_notification" },
+        });
+        notification = notificationArtifact("sent");
+      } catch (err) {
+        notification = {
+          ...notificationArtifact("failed", err.message),
+          code: err.code,
+          category: err.category,
+        };
         logError(SCOPE, "HELD_NOTIFICATION_FAILED", err, {
           reportId: report._id,
           recipientCount: internalRecipients.length,
           reasons: safety.reasons,
         });
-      });
+      }
     }
 
-    return { internalReport, clientReport };
+    return withDeliverySummary({ internalReport, clientReport, notification });
   }
 
   try {
@@ -600,6 +800,10 @@ export const processReportDelivery = async ({
     }, "green");
   } catch (err) {
     clientReport.status = "failed";
+    clientReport.delivery_error = {
+      code: err.code || "CLIENT_REPORT_DELIVERY_FAILED",
+      category: err.category || "delivery",
+    };
     clientReport.recipients = toRecipientStatus(clientRecipients, "failed", err.message);
     logError(SCOPE, "CLIENT_REPORT_AUTO_SEND_FAILED", err, {
       reportId: report._id,
@@ -608,5 +812,5 @@ export const processReportDelivery = async ({
     });
   }
 
-  return { internalReport, clientReport };
+  return withDeliverySummary({ internalReport, clientReport });
 };

@@ -21,6 +21,22 @@ const deliveryRecipientSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const deliveryErrorSchema = new mongoose.Schema(
+  {
+    code: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    category: {
+      type: String,
+      enum: ["configuration", "validation", "network", "timeout", "response", "delivery"],
+      default: "delivery",
+    },
+  },
+  { _id: false }
+);
+
 const reportEmailArtifactSchema = new mongoose.Schema(
   {
     status: {
@@ -69,6 +85,10 @@ const reportEmailArtifactSchema = new mongoose.Schema(
     recipients: {
       type: [deliveryRecipientSchema],
       default: [],
+    },
+    delivery_error: {
+      type: deliveryErrorSchema,
+      default: null,
     },
     safety: {
       passed: {
@@ -132,6 +152,10 @@ const internalReportArtifactSchema = new mongoose.Schema(
     recipients: {
       type: [deliveryRecipientSchema],
       default: [],
+    },
+    delivery_error: {
+      type: deliveryErrorSchema,
+      default: null,
     },
   },
   { _id: false }
