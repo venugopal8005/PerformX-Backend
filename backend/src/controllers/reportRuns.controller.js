@@ -4,6 +4,8 @@ import {
   runClientReportSafetyChecks,
   sendReportEmail,
 } from "../services/reportDelivery.service.js";
+import { buildReportRunQuickLook } from "../services/reportQuickLook.service.js";
+import { metaErrorResponse } from "../services/metaContext.service.js";
 import { logAction, logError } from "../utils/controllerLogger.js";
 
 const SCOPE = "ReportRuns";
@@ -22,15 +24,91 @@ const toRecipientStatus = (emails, status, error = null) =>
     error,
   }));
 
+export const getReportRunQuickLook = async (req, res) => {
+  try {
+    const agencyId = req.user?.agencyId;
+    const userId = req.user?.id || req.user?.userId;
+
+    logAction(SCOPE, "QUICK_LOOK_REQUEST", {
+      agencyId,
+      userId,
+      reportRunId: req.params.reportRunId,
+      range: req.query?.range || req.query?.quickRange || "last_available",
+    }, "blue");
+
+    if (!agencyId) {
+      return res.status(401).json({
+        success: false,
+        message: "Agency context missing from auth token",
+      });
+    }
+
+    const reportRun = await ReportRun.findOne({
+      _id: req.params.reportRunId,
+      agency_id: agencyId,
+    }).lean();
+
+    if (!reportRun) {
+      return res.status(404).json({
+        success: false,
+        message: "Report run not found.",
+      });
+    }
+
+    const report = await Report.findOne({
+      _id: reportRun.report_id,
+      agency_id: agencyId,
+    }).lean();
+
+    if (!report) {
+      return res.status(404).json({
+        success: false,
+        message: "Report not found.",
+      });
+    }
+
+    const quickLook = await buildReportRunQuickLook({
+      reportRun,
+      report,
+      query: req.query || {},
+    });
+
+    logAction(SCOPE, "QUICK_LOOK_READY", {
+      agencyId,
+      userId,
+      reportRunId: reportRun._id,
+      range: quickLook.range?.type,
+      dataQuality: quickLook.dataQuality?.level,
+      isFallback: quickLook.range?.isFallback,
+    }, "green");
+
+    return res.json({
+      success: true,
+      ...quickLook,
+    });
+  } catch (err) {
+    logError(SCOPE, "QUICK_LOOK_FAILED", err, {
+      reportRunId: req.params?.reportRunId,
+      range: req.query?.range || req.query?.quickRange,
+    });
+
+    return res
+      .status(err.status || 400)
+      .json(metaErrorResponse(err, "Could not load quick look numbers."));
+  }
+};
+
 export const approveAndSendClientReport = async (req, res) => {
   try {
     const agencyId = req.user?.agencyId;
     const userId = req.user?.id || req.user?.userId;
+    const overrideSafety = req.body?.overrideSafety === true;
 
     logAction(SCOPE, "APPROVE_CLIENT_REPORT_REQUEST", {
       agencyId,
       userId,
       reportRunId: req.params.reportRunId,
+      overrideSafety,
     }, "blue");
 
     if (!agencyId) {
@@ -113,12 +191,51 @@ export const approveAndSendClientReport = async (req, res) => {
 
     clientReport.safety = safety;
 
-    if (!safety.passed) {
+    if (!recipients.length) {
       clientReport.status = "held_for_review";
       reportRun.markModified("client_report");
       await reportRun.save();
 
-      logAction(SCOPE, "CLIENT_REPORT_APPROVAL_BLOCKED", {
+      logAction(SCOPE, "CLIENT_REPORT_APPROVAL_BLOCKED_NO_RECIPIENTS", {
+        agencyId,
+        userId,
+        reportRunId: reportRun._id,
+        reportId: report._id,
+      }, "yellow");
+
+      return res.status(400).json({
+        success: false,
+        message: "No client recipients are selected.",
+        safety,
+        reportRun,
+      });
+    }
+
+    if (!safety.passed) {
+      if (!overrideSafety) {
+        clientReport.status = "held_for_review";
+        reportRun.markModified("client_report");
+        await reportRun.save();
+
+        logAction(SCOPE, "CLIENT_REPORT_APPROVAL_REQUIRES_OVERRIDE", {
+          agencyId,
+          userId,
+          reportRunId: reportRun._id,
+          reportId: report._id,
+          reasons: safety.reasons,
+          warnings: safety.warnings,
+        }, "yellow");
+
+        return res.status(400).json({
+          success: false,
+          requiresOverride: true,
+          message: "Safety checks failed. Manual confirmation required.",
+          safety,
+          reportRun,
+        });
+      }
+
+      logAction(SCOPE, "CLIENT_REPORT_SAFETY_OVERRIDE_CONFIRMED", {
         agencyId,
         userId,
         reportRunId: reportRun._id,
@@ -126,13 +243,6 @@ export const approveAndSendClientReport = async (req, res) => {
         reasons: safety.reasons,
         warnings: safety.warnings,
       }, "yellow");
-
-      return res.status(400).json({
-        success: false,
-        message: "Client report failed safety checks.",
-        safety,
-        reportRun,
-      });
     }
 
     try {
@@ -148,6 +258,7 @@ export const approveAndSendClientReport = async (req, res) => {
           reportId: report._id,
           reportRunId: reportRun._id,
           approvedBy: userId,
+          safetyOverride: !safety.passed && overrideSafety,
         },
       });
 
@@ -156,6 +267,14 @@ export const approveAndSendClientReport = async (req, res) => {
       clientReport.approved_at = new Date();
       clientReport.approved_by = userId;
       clientReport.recipients = delivery.recipients;
+
+      if (!safety.passed && overrideSafety) {
+        clientReport.safetyOverride = true;
+        clientReport.safetyOverrideBy = userId;
+        clientReport.safetyOverrideAt = new Date();
+        clientReport.safetyOverrideReasons = safety.reasons;
+      }
+
       reportRun.markModified("client_report");
       await reportRun.save();
 
@@ -165,6 +284,7 @@ export const approveAndSendClientReport = async (req, res) => {
         reportRunId: reportRun._id,
         reportId: report._id,
         recipientCount: recipients.length,
+        safetyOverride: !safety.passed && overrideSafety,
       }, "green");
 
       return res.json({

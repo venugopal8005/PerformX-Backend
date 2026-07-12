@@ -13,15 +13,35 @@ import { protect } from "../../../auth-module/index.js";
 import { manualSendReport } from "../controllers/manualSend.controller.js";
 import { runAllReports } from "../controllers/runAll.controller.js";
 import { requireWorkspaceMember } from "../middlewares/workspaceAccess.js";
+import crypto from "crypto";
 
 
 const reportRouter = Router();
 
+const protectWorkspaceOrScheduler = (req, res, next) => {
+  const expected = process.env.SCHEDULER_SECRET;
+  const provided = req.get("x-scheduler-secret") || "";
+
+  if (expected && provided) {
+    const expectedBuffer = Buffer.from(expected);
+    const providedBuffer = Buffer.from(provided);
+    if (
+      expectedBuffer.length === providedBuffer.length &&
+      crypto.timingSafeEqual(expectedBuffer, providedBuffer)
+    ) {
+      req.schedulerAuthorized = true;
+      return next();
+    }
+  }
+
+  return protect(req, res, () => requireWorkspaceMember(req, res, next));
+};
+
 reportRouter.post("/create", protect, requireWorkspaceMember, createReport);
 reportRouter.post("/start-report", protect, requireWorkspaceMember, startReport);
-reportRouter.get("/run-report", runReport);
+reportRouter.get("/run-report", protect, requireWorkspaceMember, runReport);
 reportRouter.post("/manual-send", protect, requireWorkspaceMember, manualSendReport);
-reportRouter.get("/run-all",runAllReports);
+reportRouter.get("/run-all", protectWorkspaceOrScheduler, runAllReports);
 reportRouter.get("/get-reports", protect, requireWorkspaceMember, getReports);
 reportRouter.get("/:reportId/history", protect, requireWorkspaceMember, getReportHistory);
 reportRouter.get("/:reportId", protect, requireWorkspaceMember, getReport);

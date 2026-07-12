@@ -84,6 +84,23 @@ const reportEmailArtifactSchema = new mongoose.Schema(
         default: [],
       },
     },
+    safetyOverride: {
+      type: Boolean,
+      default: false,
+    },
+    safetyOverrideBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    safetyOverrideAt: {
+      type: Date,
+      default: null,
+    },
+    safetyOverrideReasons: {
+      type: [String],
+      default: [],
+    },
   },
   { _id: false }
 );
@@ -139,6 +156,22 @@ const reportRunSchema = new mongoose.Schema(
       ref: "Report",
       required: true,
       index: true,
+    },
+    meta_ad_account_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MetaAdAccount",
+      default: null,
+      index: true,
+    },
+    meta_account_external_id_snapshot: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    meta_account_name_snapshot: {
+      type: String,
+      trim: true,
+      default: null,
     },
     triggered_by: {
       type: mongoose.Schema.Types.ObjectId,
@@ -245,6 +278,7 @@ const reportRunSchema = new mongoose.Schema(
 );
 
 reportRunSchema.index({ agency_id: 1, report_id: 1, ran_at: -1 });
+reportRunSchema.index({ agency_id: 1, meta_ad_account_id: 1, ran_at: -1 });
 reportRunSchema.index({ agency_id: 1, client_id: 1, ran_at: -1 });
 reportRunSchema.index({ report_id: 1, status: 1, ran_at: -1 });
 

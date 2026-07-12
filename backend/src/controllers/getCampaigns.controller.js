@@ -1,5 +1,9 @@
-import { MetaConnection } from "../models/MetaConnection.js";
-import { getMetaAccessToken } from "../utils/metaToken.js";
+import {
+  fetchCampaignsForMetaAccount,
+  getAssignedMetaAccountForClient,
+  metaErrorResponse,
+  resolveMetaContextForAccount,
+} from "../services/metaContext.service.js";
 
 export const getCampaigns = async (req, res) => {
   try {
@@ -7,36 +11,38 @@ export const getCampaigns = async (req, res) => {
     const clientId = req.query.client_id || req.query.clientId;
 
     if (!agencyId || !clientId) {
-      return res.status(400).send("agency and client context required");
+      return res.status(400).json({
+        success: false,
+        message: "Workspace and client context are required.",
+      });
     }
 
-    const connection = await MetaConnection.findOne({
-      agency_id: agencyId,
-      client_id: clientId,
-      is_active: true,
-    }).select("+access_token +access_token_encrypted");
+    const { metaAdAccount } = await getAssignedMetaAccountForClient({
+      agencyId,
+      clientId,
+    });
+    const context = await resolveMetaContextForAccount({
+      agencyId,
+      metaAdAccountId: metaAdAccount._id,
+    });
+    const campaigns = await fetchCampaignsForMetaAccount({
+      accessToken: context.accessToken,
+      externalAdAccountId: context.externalAdAccountId,
+    });
 
-    if (!connection) {
-      return res.status(404).send("Meta not connected");
-    }
-
-    if (!connection.ad_account_id) {
-      return res.status(400).send("Ad account not selected");
-    }
-
-    const accessToken = getMetaAccessToken(connection);
-
-    if (!accessToken) {
-      return res.status(401).send("Meta token missing. Please reconnect Meta.");
-    }
-
-    const response = await fetch(
-      `https://graph.facebook.com/v19.0/${connection.ad_account_id}/campaigns?fields=name,status,objective&access_token=${accessToken}`
-    );
-    const data = await response.json();
-
-    return res.json(data);
-  } catch (err) {
-    return res.status(500).send("Failed to fetch campaigns");
+    return res.json({
+      success: true,
+      meta_ad_account: {
+        id: metaAdAccount._id,
+        ad_account_id: metaAdAccount.ad_account_id,
+        name: metaAdAccount.name,
+      },
+      campaigns,
+      data: campaigns,
+    });
+  } catch (error) {
+    return res
+      .status(error.status || 500)
+      .json(metaErrorResponse(error, "Failed to fetch Meta campaigns."));
   }
 };

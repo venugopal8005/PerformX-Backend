@@ -8,6 +8,14 @@ const metaConnectionSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    connection_scope: {
+      type: String,
+      enum: ["workspace", "legacy_client"],
+      default: null,
+      index: true,
+    },
+    // Retained only so the migration can identify historical client token copies.
+    // New connection and report flows must never populate or query this field.
     client_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Client",
@@ -84,6 +92,18 @@ const metaConnectionSchema = new mongoose.Schema(
       ref: "User",
       default: null,
     },
+    connected_at: {
+      type: Date,
+      default: null,
+    },
+    reconnected_at: {
+      type: Date,
+      default: null,
+    },
+    disconnected_at: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -94,10 +114,19 @@ const metaConnectionSchema = new mongoose.Schema(
 metaConnectionSchema.index({ agency_id: 1, client_id: 1 });
 metaConnectionSchema.index({ agency_id: 1, meta_user_id: 1 });
 metaConnectionSchema.index(
+  { agency_id: 1, connection_scope: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { connection_scope: "workspace" },
+  }
+);
+metaConnectionSchema.index(
   { client_id: 1, ad_account_id: 1 },
   {
     unique: true,
+    name: "client_id_1_ad_account_id_1",
     partialFilterExpression: {
+      client_id: { $type: "objectId" },
       ad_account_id: { $type: "string" },
     },
   }

@@ -98,6 +98,22 @@ const reportSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    meta_ad_account_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MetaAdAccount",
+      default: null,
+      index: true,
+    },
+    meta_account_external_id_snapshot: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    meta_account_name_snapshot: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     created_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -229,6 +245,7 @@ const reportSchema = new mongoose.Schema(
 );
 
 reportSchema.index({ agency_id: 1, client_id: 1 });
+reportSchema.index({ agency_id: 1, meta_ad_account_id: 1 });
 reportSchema.index({ agency_id: 1, status: 1 });
 reportSchema.index({ agency_id: 1, severity: 1 });
 reportSchema.index({ agency_id: 1, next_run_at: 1 });

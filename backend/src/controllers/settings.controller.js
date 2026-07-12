@@ -12,12 +12,20 @@ import {
   WorkspaceSettings,
 } from "../models/index.js";
 import mongoose from "mongoose";
+import crypto from "crypto";
 import { recordActivity } from "../services/activityRecorder.service.js";
 import { logAction, logError } from "../utils/controllerLogger.js";
 import {
   encryptMetaToken,
   getMetaAccessToken,
 } from "../utils/metaToken.js";
+import {
+  fetchAllAccessibleMetaAdAccounts,
+  fetchCampaignsForMetaAccount,
+  findWorkspaceMetaConnection,
+  MetaContextError,
+  resolveMetaContextForAccount,
+} from "../services/metaContext.service.js";
 
 const SCOPE = "Settings";
 const GRAPH_VERSION = "v19.0";
@@ -72,12 +80,50 @@ const pickDefined = (source, keys) =>
     return updates;
   }, {});
 
-const encodeState = (state) =>
-  Buffer.from(JSON.stringify(state), "utf8").toString("base64url");
+const getMetaStateSecret = () =>
+  process.env.META_STATE_SECRET || process.env.JWT_SECRET || process.env.META_APP_SECRET;
+
+const encodeState = (state) => {
+  const payload = Buffer.from(JSON.stringify(state), "utf8").toString("base64url");
+  const secret = getMetaStateSecret();
+  if (!secret) throw new Error("META_STATE_SECRET, JWT_SECRET, or META_APP_SECRET is required");
+  const signature = crypto.createHmac("sha256", secret).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+};
 
 const decodeState = (state) => {
   if (!state) return {};
-  return JSON.parse(Buffer.from(state, "base64url").toString("utf8"));
+  const [payload, signature] = String(state).split(".");
+  const secret = getMetaStateSecret();
+  if (!payload || !signature || !secret) throw new Error("Invalid Meta OAuth state");
+  const expected = crypto.createHmac("sha256", secret).update(payload).digest();
+  const received = Buffer.from(signature, "base64url");
+  if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) {
+    throw new Error("Invalid Meta OAuth state");
+  }
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+};
+
+const normalizeMetaReturnTo = (value) => {
+  const fallback = "/settings?tab=meta-connections";
+  if (!value || typeof value !== "string") return fallback;
+
+  try {
+    const returnUrl = new URL(value, "http://narrative.local");
+    if (returnUrl.origin !== "http://narrative.local" || !returnUrl.pathname.startsWith("/")) {
+      return fallback;
+    }
+
+    return `${returnUrl.pathname}${returnUrl.search}`;
+  } catch {
+    return fallback;
+  }
+};
+
+const metaCallbackUrl = (clientOrigin, returnTo, status) => {
+  const target = new URL(normalizeMetaReturnTo(returnTo), clientOrigin);
+  target.searchParams.set("meta", status);
+  return target.toString();
 };
 
 const getMetaConfig = () => {
@@ -144,21 +190,21 @@ const daysUntil = (date) => {
   return Math.ceil((new Date(date).getTime() - Date.now()) / DAY_MS);
 };
 
-const getReportCountsByClient = async (agencyId, clientIds = []) => {
-  const normalizedClientIds = [...new Set(clientIds.filter(Boolean).map(String))];
+const getReportCountsByMetaAccount = async (agencyId, accountIds = []) => {
+  const normalizedAccountIds = [...new Set(accountIds.filter(Boolean).map(String))];
 
-  if (!normalizedClientIds.length) return new Map();
+  if (!normalizedAccountIds.length) return new Map();
 
   const reportCounts = await Report.aggregate([
     {
       $match: {
         agency_id: toObjectId(agencyId),
-        client_id: { $in: normalizedClientIds.map(toObjectId) },
+        meta_ad_account_id: { $in: normalizedAccountIds.map(toObjectId) },
       },
     },
     {
       $group: {
-        _id: "$client_id",
+        _id: "$meta_ad_account_id",
         total: { $sum: 1 },
         active: {
           $sum: {
@@ -180,70 +226,9 @@ const getReportCountsByClient = async (agencyId, clientIds = []) => {
   );
 };
 
-const backfillMetaAdAccountsFromLegacyConnections = async (agencyId) => {
-  const legacyConnections = await MetaConnection.find({
-    agency_id: agencyId,
-    ad_account_id: { $nin: [null, ""] },
-  }).select("_id client_id ad_account_id ad_account_name is_active status last_synced_at updatedAt createdAt");
-
-  for (const connection of legacyConnections) {
-    const existingAccount = await MetaAdAccount.findOne({
-      agency_id: agencyId,
-      ad_account_id: connection.ad_account_id,
-    });
-    const updates = {
-      meta_connection_id: connection._id,
-      name: connection.ad_account_name || connection.ad_account_id,
-      last_synced_at:
-        connection.last_synced_at ||
-        connection.updatedAt ||
-        connection.createdAt ||
-        new Date(),
-      is_active: connection.is_active !== false,
-    };
-
-    if (existingAccount && !existingAccount.client_id && connection.client_id) {
-      updates.client_id = connection.client_id;
-    }
-
-    await MetaAdAccount.findOneAndUpdate(
-      {
-        agency_id: agencyId,
-        ad_account_id: connection.ad_account_id,
-      },
-      {
-        $set: updates,
-        $setOnInsert: {
-          agency_id: agencyId,
-          client_id: connection.client_id || null,
-        },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
-    );
-
-    if (!connection.status) {
-      await MetaConnection.updateOne(
-        { _id: connection._id },
-        { $set: { status: connection.is_active === false ? "revoked" : "active" } }
-      );
-    }
-  }
-};
-
 const buildMetaDependencyContext = async (agencyId) => {
-  await backfillMetaAdAccountsFromLegacyConnections(agencyId);
-
-  const [connections, accounts] = await Promise.all([
-    MetaConnection.find({
-      agency_id: agencyId,
-      $or: [
-        { client_id: null },
-        { client_id: { $exists: false } },
-        { ad_account_id: { $nin: [null, ""] } },
-      ],
-    })
-      .populate("connected_by", "full_name email")
-      .sort({ updatedAt: -1 }),
+  const [workspaceConnection, accounts] = await Promise.all([
+    findWorkspaceMetaConnection(agencyId, { requireActive: false }),
     MetaAdAccount.find({ agency_id: agencyId })
       .populate("client_id", "name status")
       .populate(
@@ -252,18 +237,17 @@ const buildMetaDependencyContext = async (agencyId) => {
       )
       .sort({ is_active: -1, name: 1 }),
   ]);
-  const clientIds = accounts
-    .map((account) => account.client_id?._id || account.client_id)
-    .filter(Boolean);
-  const reportCountByClient = await getReportCountsByClient(agencyId, clientIds);
+  const connections = workspaceConnection
+    ? [await workspaceConnection.populate("connected_by", "full_name email")]
+    : [];
+  const accountIds = accounts.map((account) => account._id);
+  const reportCountByAccount = await getReportCountsByMetaAccount(agencyId, accountIds);
   const connectionCounts = new Map();
 
   accounts.forEach((account) => {
     const connectionId = String(account.meta_connection_id?._id || account.meta_connection_id || "");
-    const clientId = account.client_id?._id || account.client_id;
-    const reportCounts = clientId
-      ? reportCountByClient.get(String(clientId)) || { total: 0, active: 0 }
-      : { total: 0, active: 0 };
+    const reportCounts =
+      reportCountByAccount.get(String(account._id)) || { total: 0, active: 0 };
     const current = connectionCounts.get(connectionId) || {
       adAccounts: 0,
       reports: 0,
@@ -280,7 +264,7 @@ const buildMetaDependencyContext = async (agencyId) => {
   return {
     connections,
     accounts,
-    reportCountByClient,
+    reportCountByAccount,
     connectionCounts,
   };
 };
@@ -381,7 +365,10 @@ const serializeAdAccount = (account, reportCounts = { total: 0, active: 0 }) => 
     : "unknown";
   const isUnassigned = !account.client_id;
   const needsAttention =
-    !account.is_active || isUnassigned || statusNeedsAttention(connectionStatus);
+    !account.is_active ||
+    account.is_accessible === false ||
+    isUnassigned ||
+    statusNeedsAttention(connectionStatus);
 
   return {
     id: account._id,
@@ -392,18 +379,22 @@ const serializeAdAccount = (account, reportCounts = { total: 0, active: 0 }) => 
     timezone_name: account.timezone_name,
     account_status: account.account_status,
     is_active: account.is_active,
+    is_accessible: account.is_accessible !== false,
     last_synced_at: account.last_synced_at,
+    last_seen_at: account.last_seen_at,
     campaigns_last_synced_at: account.campaigns_last_synced_at,
     reports_using_account: reportCounts.total || 0,
     active_reports_using_account: reportCounts.active || 0,
     needs_attention: needsAttention,
     attention_reason: !account.is_active
       ? "removed"
-      : isUnassigned
-        ? "unassigned"
-        : statusNeedsAttention(connectionStatus)
-          ? "connection_issue"
-          : null,
+      : account.is_accessible === false
+        ? "inaccessible"
+        : isUnassigned
+          ? "unassigned"
+          : statusNeedsAttention(connectionStatus)
+            ? "connection_issue"
+            : null,
     assigned_client: account.client_id
       ? {
           id: account.client_id._id || account.client_id,
@@ -474,23 +465,11 @@ const fetchMetaPermissions = async (accessToken) => {
     .filter(Boolean);
 };
 
-const fetchMetaAdAccounts = async (accessToken) => {
-  const url = new URL(graphUrl("me/adaccounts"));
-  url.searchParams.set(
-    "fields",
-    "id,account_id,name,currency,timezone_name,account_status"
-  );
-  url.searchParams.set("limit", "200");
-  url.searchParams.set("access_token", accessToken);
-  const data = await fetchJson(url.toString());
-
-  return data.data || [];
-};
-
 const syncAdAccountsForConnection = async ({ agencyId, connectionId }) => {
   const connection = await MetaConnection.findOne({
     _id: connectionId,
     agency_id: agencyId,
+    client_id: null,
     is_active: true,
   }).select("+access_token +access_token_encrypted");
 
@@ -512,7 +491,7 @@ const syncAdAccountsForConnection = async ({ agencyId, connectionId }) => {
   }
 
   try {
-    const accounts = await fetchMetaAdAccounts(accessToken);
+    const accounts = await fetchAllAccessibleMetaAdAccounts(accessToken);
     const now = new Date();
     const synced = [];
     let newCount = 0;
@@ -547,6 +526,8 @@ const syncAdAccountsForConnection = async ({ agencyId, connectionId }) => {
                 ? String(account.account_status)
                 : null,
             last_synced_at: now,
+            last_seen_at: now,
+            is_accessible: true,
             is_active: true,
           },
           $setOnInsert: {
@@ -560,6 +541,18 @@ const syncAdAccountsForConnection = async ({ agencyId, connectionId }) => {
       if (!existed) newCount += 1;
       synced.push(syncedAccount);
     }
+
+    const seenAccountIds = synced.map((account) => account.ad_account_id);
+    await MetaAdAccount.updateMany(
+      {
+        agency_id: agencyId,
+        meta_connection_id: connection._id,
+        ...(seenAccountIds.length
+          ? { ad_account_id: { $nin: seenAccountIds } }
+          : {}),
+      },
+      { $set: { is_accessible: false } }
+    );
 
     connection.status = deriveConnectionStatus({
       ...connection.toObject(),
@@ -580,65 +573,6 @@ const syncAdAccountsForConnection = async ({ agencyId, connectionId }) => {
     await connection.save();
     throw err;
   }
-};
-
-const deactivateClientConnection = async ({ agencyId, clientId, adAccountId }) => {
-  if (!clientId || !adAccountId) return;
-
-  await MetaConnection.updateMany(
-    {
-      agency_id: agencyId,
-      client_id: clientId,
-      ad_account_id: adAccountId,
-    },
-    {
-      $set: {
-        is_active: false,
-        status: "revoked",
-        last_error: "Ad account assignment was changed in Settings.",
-      },
-    }
-  );
-};
-
-const upsertClientConnectionForAccount = async ({
-  agencyId,
-  clientId,
-  account,
-  parentConnection,
-}) => {
-  const encryptedToken =
-    parentConnection.access_token_encrypted ||
-    encryptMetaToken(parentConnection.access_token);
-
-  const updated = await MetaConnection.findOneAndUpdate(
-    {
-      agency_id: agencyId,
-      client_id: clientId,
-    },
-    {
-      $set: {
-        meta_user_id: parentConnection.meta_user_id,
-        meta_user_name: parentConnection.meta_user_name,
-        access_token_encrypted: encryptedToken,
-        token_expires_at: parentConnection.token_expires_at,
-        permissions: parentConnection.permissions || [],
-        status: deriveConnectionStatus(parentConnection),
-        last_synced_at: parentConnection.last_synced_at,
-        last_error: parentConnection.last_error,
-        is_active: true,
-        connected_by: parentConnection.connected_by,
-        ad_account_id: account.ad_account_id,
-        ad_account_name: account.name,
-      },
-      $unset: {
-        access_token: "",
-      },
-    },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  );
-
-  return updated;
 };
 
 export const getProfile = async (req, res) => {
@@ -1100,12 +1034,36 @@ export const startMetaConnection = async (req, res) => {
     const agencyId = requireAgency(req, res);
     if (!agencyId) return;
 
+    const requestedConnectionId =
+      req.query.connectionId || req.body?.connectionId || null;
+    const returnTo = normalizeMetaReturnTo(
+      req.query.returnTo || req.body?.returnTo
+    );
+
+    if (requestedConnectionId) {
+      const reconnectTarget = await MetaConnection.findOne({
+        _id: requestedConnectionId,
+        agency_id: agencyId,
+        client_id: null,
+      });
+
+      if (!reconnectTarget) {
+        return res.status(404).json({
+          success: false,
+          code: "META_NOT_CONNECTED",
+          message: "Workspace Meta connection not found.",
+        });
+      }
+    }
+
     const { appId, redirectUri } = getMetaConfig();
     const state = encodeState({
       source: "settings",
       agencyId,
       userId: getUserId(req),
-      connectionId: req.query.connectionId || null,
+      connectionId: requestedConnectionId,
+      returnTo,
+      issuedAt: Date.now(),
     });
     const url = new URL("https://www.facebook.com/v19.0/dialog/oauth");
 
@@ -1136,16 +1094,31 @@ export const metaSettingsCallback = async (req, res) => {
 
   const agencyId = state.agencyId || req.user?.agencyId;
   const userId = state.userId || getUserId(req);
+  const returnTo = normalizeMetaReturnTo(state.returnTo);
 
   try {
     const { appId, appSecret, redirectUri, clientOrigin } = getMetaConfig();
 
     if (!code) {
-      return res.redirect(`${clientOrigin}/settings?tab=meta-connections&meta=missing-code`);
+      return res.redirect(metaCallbackUrl(clientOrigin, returnTo, "missing-code"));
     }
 
-    if (!agencyId || !userId) {
-      return res.redirect(`${clientOrigin}/settings?tab=meta-connections&meta=missing-context`);
+    if (!agencyId || !userId || state.source !== "settings") {
+      return res.redirect(metaCallbackUrl(clientOrigin, returnTo, "missing-context"));
+    }
+
+    if (!state.issuedAt || Date.now() - Number(state.issuedAt) > 15 * 60 * 1000) {
+      return res.redirect(metaCallbackUrl(clientOrigin, returnTo, "expired-state"));
+    }
+
+    const membership = await WorkspaceMember.findOne({
+      workspace_id: agencyId,
+      user_id: userId,
+      status: "active",
+    });
+
+    if (!membership) {
+      return res.redirect(metaCallbackUrl(clientOrigin, returnTo, "missing-context"));
     }
 
     const tokenUrl = new URL(graphUrl("oauth/access_token"));
@@ -1182,30 +1155,60 @@ export const metaSettingsCallback = async (req, res) => {
       ? new Date(Date.now() + longData.expires_in * 1000)
       : null;
 
-    const connection = await MetaConnection.findOneAndUpdate(
-      {
+    let connection = null;
+
+    if (state.connectionId) {
+      connection = await MetaConnection.findOne({
+        _id: state.connectionId,
         agency_id: agencyId,
-        meta_user_id: profile.id,
-      },
-      {
-        $set: {
-          agency_id: agencyId,
-          client_id: null,
-          meta_user_id: profile.id,
-          meta_user_name: profile.name || "Meta profile",
-          access_token_encrypted: encryptMetaToken(accessToken),
-          token_expires_at: tokenExpiresAt,
-          permissions,
-          status: "active",
-          last_error: null,
-          is_active: true,
-          connected_by: userId,
-        },
-        $unset: {
-          access_token: "",
-        },
-      },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+        client_id: null,
+      }).select("+access_token +access_token_encrypted");
+
+      if (!connection) {
+        throw new MetaContextError(
+          "META_RECONNECT_REQUIRED",
+          "The Meta connection being reconnected no longer exists.",
+          404
+        );
+      }
+    } else {
+      connection = await findWorkspaceMetaConnection(agencyId, {
+        includeToken: true,
+        requireActive: false,
+      });
+    }
+
+    const wasConnected = Boolean(connection);
+    const previousMetaUserId = connection?.meta_user_id || null;
+
+    if (!connection) {
+      connection = new MetaConnection({
+        agency_id: agencyId,
+        client_id: null,
+        connection_scope: "workspace",
+        connected_at: new Date(),
+      });
+    }
+
+    connection.connection_scope = "workspace";
+    connection.client_id = null;
+    connection.meta_user_id = profile.id;
+    connection.meta_user_name = profile.name || "Meta profile";
+    connection.access_token_encrypted = encryptMetaToken(accessToken);
+    connection.access_token = undefined;
+    connection.token_expires_at = tokenExpiresAt;
+    connection.permissions = permissions;
+    connection.status = "active";
+    connection.last_error = null;
+    connection.is_active = true;
+    connection.connected_by = userId;
+    connection.disconnected_at = null;
+    connection.connected_at = connection.connected_at || new Date();
+    if (wasConnected) connection.reconnected_at = new Date();
+    await connection.save();
+    await MetaConnection.updateOne(
+      { _id: connection._id, agency_id: agencyId, client_id: null },
+      { $unset: { access_token: "" } }
     );
 
     let syncStatus = "connected";
@@ -1225,18 +1228,22 @@ export const metaSettingsCallback = async (req, res) => {
     await recordActivity({
       agency_id: agencyId,
       user_id: userId,
-      type: "meta_connected",
-      title: `${profile.name || "Meta profile"} connected`,
-      description: "Meta profile connected from Settings and ad accounts were synced.",
+      type: wasConnected ? "meta_reconnected" : "meta_connected",
+      title: wasConnected ? "Meta Ads reconnected" : "Meta Ads connected",
+      description: wasConnected
+        ? "Meta Ads was reconnected for the workspace and accessible accounts were synced."
+        : "Meta Ads was connected to the workspace and accessible accounts were synced.",
       severity: syncStatus === "connected" ? "stable" : "moderate",
       metadata: {
         connection_id: connection._id,
         meta_user_id: profile.id,
+        meta_identity_changed:
+          Boolean(previousMetaUserId) && previousMetaUserId !== String(profile.id),
         sync_status: syncStatus,
       },
     }).catch(() => null);
 
-    return res.redirect(`${clientOrigin}/settings?tab=meta-connections&meta=${syncStatus}`);
+    return res.redirect(metaCallbackUrl(clientOrigin, returnTo, syncStatus));
   } catch (err) {
     logError(SCOPE, "META_SETTINGS_CALLBACK_FAILED", err, {
       agencyId,
@@ -1244,7 +1251,7 @@ export const metaSettingsCallback = async (req, res) => {
     });
 
     const clientOrigin = process.env.CLIENT_ORIGIN || "http://localhost:5173";
-    return res.redirect(`${clientOrigin}/settings?tab=meta-connections&meta=failed`);
+    return res.redirect(metaCallbackUrl(clientOrigin, returnTo, "failed"));
   }
 };
 
@@ -1277,7 +1284,7 @@ export const getMetaOverview = async (req, res) => {
     const agencyId = requireAgency(req, res);
     if (!agencyId) return;
 
-    const { connections, accounts, reportCountByClient } =
+    const { connections, accounts, reportCountByAccount } =
       await buildMetaDependencyContext(agencyId);
     const connectionStatusById = new Map(
       connections.map((connection) => [
@@ -1285,7 +1292,7 @@ export const getMetaOverview = async (req, res) => {
         deriveConnectionStatus(connection),
       ])
     );
-    const affectedClientIds = new Set();
+    const affectedAccountIds = new Set();
     const needsAttentionCount =
       connections.filter((connection) =>
         statusNeedsAttention(deriveConnectionStatus(connection))
@@ -1295,21 +1302,24 @@ export const getMetaOverview = async (req, res) => {
         const connectionStatus = connectionStatusById.get(connectionId) || "unknown";
         const needsAttention =
           !account.is_active ||
+          account.is_accessible === false ||
           !account.client_id ||
           statusNeedsAttention(connectionStatus);
 
         if (
           account.client_id &&
-          (!account.is_active || statusNeedsAttention(connectionStatus))
+          (!account.is_active ||
+            account.is_accessible === false ||
+            statusNeedsAttention(connectionStatus))
         ) {
-          affectedClientIds.add(String(account.client_id._id || account.client_id));
+          affectedAccountIds.add(String(account._id));
         }
 
         return needsAttention;
       }).length;
-    const affectedReportsCount = Array.from(affectedClientIds).reduce(
-      (total, clientId) =>
-        total + (reportCountByClient.get(clientId)?.active || 0),
+    const affectedReportsCount = Array.from(affectedAccountIds).reduce(
+      (total, accountId) =>
+        total + (reportCountByAccount.get(accountId)?.active || 0),
       0
     );
 
@@ -1318,7 +1328,9 @@ export const getMetaOverview = async (req, res) => {
       overview: {
         connectedProfilesCount: connections.filter((connection) => connection.is_active)
           .length,
-        syncedAdAccountsCount: accounts.filter((account) => account.is_active)
+        syncedAdAccountsCount: accounts.filter(
+          (account) => account.is_active && account.is_accessible !== false
+        )
           .length,
         needsAttentionCount,
         affectedReportsCount,
@@ -1340,6 +1352,7 @@ export const reconnectMetaConnection = async (req, res) => {
     const connection = await MetaConnection.findOne({
       _id: req.params.connectionId,
       agency_id: agencyId,
+      client_id: null,
     });
 
     if (!connection) {
@@ -1375,7 +1388,7 @@ export const syncMetaConnection = async (req, res) => {
     await recordActivity({
       agency_id: agencyId,
       user_id: getUserId(req),
-      type: "meta_synced",
+      type: "meta_accounts_synced",
       title: "Meta ad accounts synced",
       description: `${syncedCount} ad accounts were synced from Meta.`,
       severity: "stable",
@@ -1405,15 +1418,16 @@ export const syncAllMetaConnections = async (req, res) => {
     const agencyId = requireAgency(req, res);
     if (!agencyId) return;
 
-    const connections = await MetaConnection.find({
-      agency_id: agencyId,
-      is_active: true,
-      $or: [
-        { client_id: null },
-        { client_id: { $exists: false } },
-        { ad_account_id: { $nin: [null, ""] } },
-      ],
-    }).select("_id status token_expires_at is_active");
+    const workspaceConnection = await findWorkspaceMetaConnection(agencyId);
+    const connections = workspaceConnection ? [workspaceConnection] : [];
+
+    if (!connections.length) {
+      return res.status(400).json({
+        success: false,
+        code: "META_NOT_CONNECTED",
+        message: "Meta Ads is not connected for this workspace.",
+      });
+    }
     let syncedCount = 0;
     let newCount = 0;
     const failures = [];
@@ -1434,6 +1448,20 @@ export const syncAllMetaConnections = async (req, res) => {
         });
       }
     }
+
+    await recordActivity({
+      agency_id: agencyId,
+      user_id: getUserId(req),
+      type: "meta_accounts_synced",
+      title: "Meta ad accounts synced",
+      description: `${syncedCount} accessible Meta ad accounts were synced for the workspace.`,
+      severity: failures.length ? "moderate" : "stable",
+      metadata: {
+        synced_count: syncedCount,
+        new_count: newCount,
+        failure_count: failures.length,
+      },
+    }).catch(() => null);
 
     return res.json({
       success: failures.length === 0,
@@ -1460,6 +1488,7 @@ export const removeMetaConnection = async (req, res) => {
     const connection = await MetaConnection.findOne({
       _id: req.params.connectionId,
       agency_id: agencyId,
+      client_id: null,
     });
 
     if (!connection) {
@@ -1469,20 +1498,13 @@ export const removeMetaConnection = async (req, res) => {
       });
     }
 
-    await MetaConnection.updateMany(
-      connection.meta_user_id
-        ? {
-            agency_id: agencyId,
-            meta_user_id: connection.meta_user_id,
-          }
-        : {
-            _id: connection._id,
-            agency_id: agencyId,
-          },
+    await MetaConnection.updateOne(
+      { _id: connection._id, agency_id: agencyId, client_id: null },
       {
         $set: {
           is_active: false,
           status: "revoked",
+          disconnected_at: new Date(),
           last_error: "Connection removed from Settings.",
         },
         $unset: {
@@ -1499,11 +1521,20 @@ export const removeMetaConnection = async (req, res) => {
       },
       {
         $set: {
-          is_active: false,
-          client_id: null,
+          is_accessible: false,
         },
       }
     );
+
+    await recordActivity({
+      agency_id: agencyId,
+      user_id: getUserId(req),
+      type: "meta_disconnected",
+      title: "Meta Ads disconnected",
+      description: "Meta Ads was disconnected from the workspace.",
+      severity: "moderate",
+      metadata: { connection_id: connection._id },
+    }).catch(() => null);
 
     return res.json({
       success: true,
@@ -1522,7 +1553,7 @@ export const getMetaAdAccounts = async (req, res) => {
     const agencyId = requireAgency(req, res);
     if (!agencyId) return;
 
-    const { accounts, reportCountByClient } =
+    const { accounts, reportCountByAccount } =
       await buildMetaDependencyContext(agencyId);
 
     return res.json({
@@ -1530,12 +1561,7 @@ export const getMetaAdAccounts = async (req, res) => {
       ad_accounts: accounts.map((account) =>
         serializeAdAccount(
           account,
-          account.client_id
-            ? reportCountByClient.get(String(account.client_id._id || account.client_id)) || {
-                total: 0,
-                active: 0,
-              }
-            : { total: 0, active: 0 }
+          reportCountByAccount.get(String(account._id)) || { total: 0, active: 0 }
         )
       ),
     });
@@ -1553,20 +1579,31 @@ export const assignMetaAdAccount = async (req, res) => {
     if (!agencyId) return;
 
     const clientId = req.body.clientId || req.body.client_id || null;
+    const confirmReassignment = req.body.confirmReassignment === true;
     const account = await MetaAdAccount.findOne({
       _id: req.params.adAccountId,
       agency_id: agencyId,
     });
 
     if (!account) {
-      return res.status(404).json({
+      return res.status(403).json({
         success: false,
-        message: "Ad account not found",
+        code: "META_ACCOUNT_FORBIDDEN",
+        message: "This Meta ad account is not available in the active workspace.",
       });
     }
 
+    if (account.is_active === false || account.is_accessible === false) {
+      return res.status(400).json({
+        success: false,
+        code: "META_ACCOUNT_INACCESSIBLE",
+        message: "This Meta ad account is no longer accessible.",
+      });
+    }
+
+    let client = null;
     if (clientId) {
-      const client = await Client.findOne({ _id: clientId, agency_id: agencyId });
+      client = await Client.findOne({ _id: clientId, agency_id: agencyId });
       if (!client) {
         return res.status(404).json({
           success: false,
@@ -1575,12 +1612,38 @@ export const assignMetaAdAccount = async (req, res) => {
       }
     }
 
-    const previousClientId = account.client_id?.toString();
+    const previousClientId = account.client_id?.toString() || null;
+    const previousClient = previousClientId
+      ? await Client.findOne({ _id: previousClientId, agency_id: agencyId }).select("name")
+      : null;
+    const existingClientAccounts = clientId
+      ? await MetaAdAccount.find({
+          agency_id: agencyId,
+          client_id: clientId,
+          _id: { $ne: account._id },
+          is_active: true,
+        })
+      : [];
+    const movesFromAnotherClient =
+      Boolean(previousClientId) && previousClientId !== String(clientId || "");
+    const replacesClientAccount = existingClientAccounts.length > 0;
+
+    if ((movesFromAnotherClient || replacesClientAccount) && !confirmReassignment) {
+      return res.status(409).json({
+        success: false,
+        code: "META_ACCOUNT_ALREADY_ASSIGNED",
+        message:
+          "Changing this assignment requires confirmation. Existing reports will keep their current Meta account.",
+        requiresConfirmation: true,
+      });
+    }
+
     const parentConnection = await MetaConnection.findOne({
       _id: account.meta_connection_id,
       agency_id: agencyId,
+      client_id: null,
       is_active: true,
-    }).select("+access_token +access_token_encrypted");
+    });
 
     if (clientId && !parentConnection) {
       return res.status(400).json({
@@ -1589,25 +1652,60 @@ export const assignMetaAdAccount = async (req, res) => {
       });
     }
 
-    if (previousClientId && previousClientId !== String(clientId || "")) {
-      await deactivateClientConnection({
-        agencyId,
-        clientId: previousClientId,
-        adAccountId: account.ad_account_id,
-      });
+    try {
+      if (existingClientAccounts.length) {
+        await MetaAdAccount.updateMany(
+          { _id: { $in: existingClientAccounts.map((item) => item._id) }, agency_id: agencyId },
+          { $set: { client_id: null, assignment_scope: null } }
+        );
+      }
+
+      account.client_id = clientId || null;
+      account.assignment_scope = clientId ? "v1" : null;
+      await account.save();
+    } catch (error) {
+      account.client_id = previousClientId;
+      account.assignment_scope = previousClientId ? "v1" : null;
+      await account.save().catch(() => null);
+      if (existingClientAccounts.length && clientId) {
+        await MetaAdAccount.updateMany(
+          { _id: { $in: existingClientAccounts.map((item) => item._id) }, agency_id: agencyId },
+          { $set: { client_id: clientId, assignment_scope: "v1" } }
+        ).catch(() => null);
+      }
+      throw error;
     }
 
-    account.client_id = clientId || null;
-    await account.save();
+    const activityType = !clientId
+      ? "meta_account_unassigned"
+      : movesFromAnotherClient || replacesClientAccount
+        ? "meta_account_reassigned"
+        : "meta_account_assigned";
+    const description = !clientId
+      ? `${account.name || account.ad_account_id} was unassigned from ${previousClient?.name || "a client"}.`
+      : movesFromAnotherClient || replacesClientAccount
+        ? `${client.name}'s Meta account was changed to ${account.name || account.ad_account_id}. Existing reports keep their original account.`
+        : `${account.name || account.ad_account_id} was assigned to ${client.name}.`;
 
-    if (clientId) {
-      await upsertClientConnectionForAccount({
-        agencyId,
-        clientId,
-        account,
-        parentConnection,
-      });
-    }
+    await recordActivity({
+      agency_id: agencyId,
+      client_id: clientId || previousClientId,
+      user_id: getUserId(req),
+      type: activityType,
+      title: !clientId
+        ? "Meta ad account unassigned"
+        : movesFromAnotherClient || replacesClientAccount
+          ? "Meta ad account changed"
+          : "Meta ad account assigned",
+      description,
+      severity: "stable",
+      metadata: {
+        meta_ad_account_id: account._id,
+        ad_account_id: account.ad_account_id,
+        previous_client_id: previousClientId,
+        client_id: clientId,
+      },
+    }).catch(() => null);
 
     const populated = await MetaAdAccount.findById(account._id)
       .populate("client_id", "name status")
@@ -1622,9 +1720,16 @@ export const assignMetaAdAccount = async (req, res) => {
       ad_account: serializeAdAccount(populated),
     });
   } catch (err) {
-    return res.status(500).json({
+    return res.status(err.status || (err?.code === 11000 ? 409 : 500)).json({
       success: false,
-      message: err.message || "Failed to assign Meta ad account",
+      code:
+        err?.code === 11000
+          ? "META_ACCOUNT_ALREADY_ASSIGNED"
+          : err.code || "META_ASSIGNMENT_FAILED",
+      message:
+        err?.code === 11000
+          ? "This client already has a Meta ad account assigned."
+          : err.message || "Failed to assign Meta ad account",
     });
   }
 };
@@ -1647,37 +1752,27 @@ export const refreshMetaAdAccountCampaigns = async (req, res) => {
       });
     }
 
-    const connection = await MetaConnection.findOne({
-      _id: account.meta_connection_id,
-      agency_id: agencyId,
-      is_active: true,
-    }).select("+access_token +access_token_encrypted");
-    const accessToken = getMetaAccessToken(connection);
-
-    if (!accessToken) {
-      return res.status(400).json({
-        success: false,
-        message: "Reconnect Meta before refreshing campaigns",
-      });
-    }
-
-    const url = new URL(graphUrl(`${account.ad_account_id}/campaigns`));
-    url.searchParams.set("fields", "id,name,status,objective");
-    url.searchParams.set("limit", "100");
-    url.searchParams.set("access_token", accessToken);
-    const data = await fetchJson(url.toString());
+    const context = await resolveMetaContextForAccount({
+      agencyId,
+      metaAdAccountId: account._id,
+    });
+    const campaigns = await fetchCampaignsForMetaAccount({
+      accessToken: context.accessToken,
+      externalAdAccountId: context.externalAdAccountId,
+    });
 
     account.campaigns_last_synced_at = new Date();
     await account.save();
 
     return res.json({
       success: true,
-      campaign_count: data.data?.length || 0,
-      campaigns: data.data || [],
+      campaign_count: campaigns.length,
+      campaigns,
     });
   } catch (err) {
-    return res.status(500).json({
+    return res.status(err.status || 500).json({
       success: false,
+      code: err.code || "META_CAMPAIGN_REFRESH_FAILED",
       message: err.message || "Failed to refresh campaigns",
     });
   }
@@ -1700,14 +1795,10 @@ export const removeMetaAdAccount = async (req, res) => {
       });
     }
 
-    await deactivateClientConnection({
-      agencyId,
-      clientId: account.client_id,
-      adAccountId: account.ad_account_id,
-    });
-
     account.is_active = false;
+    account.is_accessible = false;
     account.client_id = null;
+    account.assignment_scope = null;
     await account.save();
 
     return res.json({
@@ -1890,6 +1981,7 @@ export const getSecurity = async (req, res) => {
       MetaConnection.find({
         agency_id: agencyId,
         client_id: null,
+        connection_scope: { $in: [null, "workspace"] },
       }).select("meta_user_name meta_user_id permissions status token_expires_at is_active"),
     ]);
 

@@ -20,6 +20,11 @@ const metaAdAccountSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    assignment_scope: {
+      type: String,
+      enum: ["v1"],
+      default: null,
+    },
     ad_account_id: {
       type: String,
       required: true,
@@ -50,6 +55,16 @@ const metaAdAccountSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    last_seen_at: {
+      type: Date,
+      default: null,
+    },
+    is_accessible: {
+      type: Boolean,
+      default: true,
+      required: true,
+      index: true,
+    },
     campaigns_last_synced_at: {
       type: Date,
       default: null,
@@ -71,7 +86,15 @@ metaAdAccountSchema.index(
   { unique: true }
 );
 metaAdAccountSchema.index({ agency_id: 1, client_id: 1 });
+metaAdAccountSchema.index(
+  { agency_id: 1, client_id: 1, assignment_scope: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { assignment_scope: "v1" },
+  }
+);
 metaAdAccountSchema.index({ agency_id: 1, is_active: 1 });
+metaAdAccountSchema.index({ agency_id: 1, is_accessible: 1 });
 
 metaAdAccountSchema.virtual("workspace_id").get(function () {
   return this.agency_id;

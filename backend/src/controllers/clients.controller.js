@@ -1,5 +1,12 @@
 import { Client } from "../models/Client.js";
-import { Activity, MetaConnection, Report, ReportRun, Signal } from "../models/index.js";
+import {
+  Activity,
+  MetaAdAccount,
+  MetaConnection,
+  Report,
+  ReportRun,
+  Signal,
+} from "../models/index.js";
 import { recordActivity } from "../services/activityRecorder.service.js";
 
 const requireAgency = (req, res) => {
@@ -67,10 +74,21 @@ export const getClients = async (req, res) => {
     if (!agencyId) return;
 
     const clients = await Client.find({ agency_id: agencyId }).sort({ createdAt: -1 });
+    const accounts = await MetaAdAccount.find({
+      agency_id: agencyId,
+      client_id: { $in: clients.map((client) => client._id) },
+      is_active: true,
+    }).lean();
+    const accountByClientId = new Map(
+      accounts.map((account) => [String(account.client_id), account])
+    );
 
     return res.json({
       success: true,
-      clients,
+      clients: clients.map((client) => ({
+        ...client.toObject(),
+        meta_ad_account: accountByClientId.get(String(client._id)) || null,
+      })),
     });
   } catch (err) {
     return res.status(500).json({
@@ -97,9 +115,18 @@ export const getClient = async (req, res) => {
       });
     }
 
+    const metaAdAccount = await MetaAdAccount.findOne({
+      agency_id: agencyId,
+      client_id: client._id,
+      is_active: true,
+    }).lean();
+
     return res.json({
       success: true,
-      client,
+      client: {
+        ...client.toObject(),
+        meta_ad_account: metaAdAccount || null,
+      },
     });
   } catch (err) {
     return res.status(500).json({
@@ -196,6 +223,11 @@ export const deleteClient = async (req, res) => {
         ],
       }),
     ]);
+
+    await MetaAdAccount.updateMany(
+      { agency_id: agencyId, client_id: client._id },
+      { $set: { client_id: null, assignment_scope: null } }
+    );
 
     const deletedReports = await Report.deleteMany({
       agency_id: agencyId,

@@ -20,6 +20,9 @@ export const runReport = async (req, res) => {
 
     const result = await runOperationalReport(reportId, {
       force: req.query.force === "true",
+      agencyId: req.user?.agencyId,
+      userId: req.user?.id || req.user?.userId,
+      triggerType: "api",
     });
 
     if (result.skipped) {
@@ -49,8 +52,9 @@ export const runReport = async (req, res) => {
       reportId: req.query?.reportId,
     });
 
-    return res.status(500).json({
+    return res.status(err.status || 500).json({
       success: false,
+      code: err.code || "REPORT_RUN_FAILED",
       message: err.message || "Failed to run report",
     });
   }

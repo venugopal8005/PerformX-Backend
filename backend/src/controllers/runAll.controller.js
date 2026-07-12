@@ -12,7 +12,11 @@ export const runAllReports = async (req, res) => {
       triggeredBy: "n8n",
     }, "blue");
 
-    const result = await runDueReports({ now });
+    const result = await runDueReports({
+      now,
+      agencyId: req.schedulerAuthorized ? undefined : req.user?.agencyId,
+      triggerType: "scheduled",
+    });
 
     logAction(SCOPE, "RUN_ALL_REPORTS_SUCCESS", {
       checkedCount: result.checkedCount,

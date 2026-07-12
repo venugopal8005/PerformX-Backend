@@ -9,6 +9,13 @@ import {
   normalizeEmailList,
   normalizeSafetySettings,
 } from "../services/reportDelivery.service.js";
+import {
+  getAssignedMetaAccountForClient,
+  metaErrorResponse,
+  resolveMetaContextForAccount,
+  resolveMetaContextForReport,
+  validateCampaignsForMetaAccount,
+} from "../services/metaContext.service.js";
 
 const SCOPE = "Reports";
 const DEFAULT_REPORT_NAME = "Meta Ads Monitor";
@@ -65,6 +72,40 @@ const requireAgency = (req, res) => {
   return agencyId;
 };
 
+const resolveReportAccountForClient = async ({
+  agencyId,
+  clientId,
+  requestedMetaAdAccountId,
+  campaigns,
+}) => {
+  const { client, metaAdAccount } = await getAssignedMetaAccountForClient({
+    agencyId,
+    clientId,
+  });
+
+  if (
+    requestedMetaAdAccountId &&
+    String(requestedMetaAdAccountId) !== String(metaAdAccount._id)
+  ) {
+    const error = new Error("The selected Meta ad account is not assigned to this client.");
+    error.code = "META_ACCOUNT_MISMATCH";
+    error.status = 400;
+    throw error;
+  }
+
+  const context = await resolveMetaContextForAccount({
+    agencyId,
+    metaAdAccountId: metaAdAccount._id,
+  });
+  await validateCampaignsForMetaAccount({
+    accessToken: context.accessToken,
+    externalAdAccountId: context.externalAdAccountId,
+    campaigns,
+  });
+
+  return { client, metaAdAccount, context };
+};
+
 export const createReport = async (req, res) => {
   try {
     const agencyId = requireAgency(req, res);
@@ -110,9 +151,28 @@ export const createReport = async (req, res) => {
       });
     }
 
+    const monitoredCampaigns = normalizeCampaigns(formData.monitored_campaigns);
+    if (!monitoredCampaigns.length) {
+      return res.status(400).json({
+        success: false,
+        code: "INVALID_META_CAMPAIGNS",
+        message: "Select at least one campaign from the assigned Meta ad account.",
+        invalidCampaignIds: [],
+      });
+    }
+    const { metaAdAccount } = await resolveReportAccountForClient({
+      agencyId,
+      clientId,
+      requestedMetaAdAccountId:
+        formData.meta_ad_account_id || formData.metaAdAccountId,
+      campaigns: monitoredCampaigns,
+    });
     const report = await Report.create({
       agency_id: agencyId,
       client_id: clientId,
+      meta_ad_account_id: metaAdAccount._id,
+      meta_account_external_id_snapshot: metaAdAccount.ad_account_id,
+      meta_account_name_snapshot: metaAdAccount.name,
       created_by: userId,
       name,
       type: scheduleConfig.type,
@@ -135,7 +195,7 @@ export const createReport = async (req, res) => {
       safety_settings: normalizeSafetySettings(
         formData.safety_settings || formData.safetySettings
       ),
-      monitored_campaigns: normalizeCampaigns(formData.monitored_campaigns),
+      monitored_campaigns: monitoredCampaigns,
       schedule: scheduleConfig.schedule,
       last_summary: null,
       last_signal_at: null,
@@ -182,10 +242,9 @@ export const createReport = async (req, res) => {
   } catch (err) {
     logError(SCOPE, "CREATE_REPORT_FAILED", err);
 
-    return res.status(500).json({
-      success: false,
-      message: err.message || "Failed to create report",
-    });
+    return res
+      .status(err.status || 500)
+      .json(metaErrorResponse(err, "Failed to create report"));
   }
 };
 
@@ -222,6 +281,8 @@ export const startReport = async (req, res) => {
       });
     }
 
+    await resolveMetaContextForReport(report);
+
     report.status = "active";
     report.next_run_at = getNextRunAt(report);
     await report.save();
@@ -257,10 +318,9 @@ export const startReport = async (req, res) => {
   } catch (err) {
     logError(SCOPE, "START_REPORT_FAILED", err);
 
-    return res.status(500).json({
-      success: false,
-      message: err.message || "Failed to start report",
-    });
+    return res
+      .status(err.status || 500)
+      .json(metaErrorResponse(err, "Failed to start report"));
   }
 };
 
@@ -275,7 +335,9 @@ export const getReports = async (req, res) => {
       ...(clientId ? { client_id: clientId } : {}),
     };
 
-    const reports = await Report.find(query).sort({ createdAt: -1 });
+    const reports = await Report.find(query)
+      .populate("meta_ad_account_id", "name ad_account_id is_accessible is_active")
+      .sort({ createdAt: -1 });
     const latestRuns = await ReportRun.find({
       agency_id: agencyId,
       report_id: { $in: reports.map((report) => report._id) },
@@ -315,7 +377,7 @@ export const getReport = async (req, res) => {
     const report = await Report.findOne({
       _id: req.params.reportId,
       agency_id: agencyId,
-    });
+    }).populate("meta_ad_account_id", "name ad_account_id is_accessible is_active");
 
     if (!report) {
       return res.status(404).json({
@@ -345,7 +407,9 @@ export const getReportHistory = async (req, res) => {
     const report = await Report.findOne({
       _id: req.params.reportId,
       agency_id: agencyId,
-    }).populate("client_id", "name status");
+    })
+      .populate("client_id", "name status")
+      .populate("meta_ad_account_id", "name ad_account_id is_accessible is_active");
 
     if (!report) {
       return res.status(404).json({
@@ -432,6 +496,44 @@ export const updateReport = async (req, res) => {
     }
 
     const wasActive = report.status === "active";
+    const requestedClientId = updates.client_id || updates.clientId;
+    const clientChanged =
+      requestedClientId && String(requestedClientId) !== String(report.client_id);
+
+    if (clientChanged) {
+      const replacementCampaigns = normalizeCampaigns(updates.monitored_campaigns || []);
+      const { metaAdAccount } = await resolveReportAccountForClient({
+        agencyId,
+        clientId: requestedClientId,
+        requestedMetaAdAccountId:
+          updates.meta_ad_account_id || updates.metaAdAccountId,
+        campaigns: replacementCampaigns,
+      });
+
+      report.client_id = requestedClientId;
+      report.meta_ad_account_id = metaAdAccount._id;
+      report.meta_account_external_id_snapshot = metaAdAccount.ad_account_id;
+      report.meta_account_name_snapshot = metaAdAccount.name;
+      report.monitored_campaigns = replacementCampaigns;
+    } else if (
+      (updates.meta_ad_account_id || updates.metaAdAccountId) &&
+      String(updates.meta_ad_account_id || updates.metaAdAccountId) !==
+        String(report.meta_ad_account_id)
+    ) {
+      const error = new Error("The report's Meta ad account cannot be changed implicitly.");
+      error.code = "META_ACCOUNT_MISMATCH";
+      error.status = 400;
+      throw error;
+    } else if (updates.monitored_campaigns !== undefined) {
+      const replacementCampaigns = normalizeCampaigns(updates.monitored_campaigns);
+      const context = await resolveMetaContextForReport(report);
+      await validateCampaignsForMetaAccount({
+        accessToken: context.accessToken,
+        externalAdAccountId: context.externalAdAccountId,
+        campaigns: replacementCampaigns,
+      });
+      report.monitored_campaigns = replacementCampaigns;
+    }
 
     if (updates.name !== undefined) {
       report.name = normalizeReportName(updates.name);
@@ -487,10 +589,6 @@ export const updateReport = async (req, res) => {
       report.safety_settings = normalizeSafetySettings(
         updates.safety_settings || updates.safetySettings
       );
-    }
-
-    if (updates.monitored_campaigns !== undefined) {
-      report.monitored_campaigns = normalizeCampaigns(updates.monitored_campaigns);
     }
 
     if (updates.severity !== undefined) {
@@ -559,10 +657,9 @@ export const updateReport = async (req, res) => {
   } catch (err) {
     logError(SCOPE, "UPDATE_REPORT_FAILED", err);
 
-    return res.status(500).json({
-      success: false,
-      message: err.message || "Failed to update report",
-    });
+    return res
+      .status(err.status || 500)
+      .json(metaErrorResponse(err, "Failed to update report"));
   }
 };
 

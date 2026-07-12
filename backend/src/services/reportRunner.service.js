@@ -1,6 +1,6 @@
 import { getNextRunAt } from "../utils/reportSchedule.js";
 import { logAction, logError } from "../utils/controllerLogger.js";
-import { Activity, Client, MetaConnection, Report, ReportRun } from "../models/index.js";
+import { Activity, Client, Report, ReportRun } from "../models/index.js";
 import { compareMetrics } from "./metricComparison.service.js";
 import { fetchMetaInsights } from "./metaInsights.service.js";
 import { aggregateMetaMetrics } from "./metaInsights.service.js";
@@ -8,8 +8,8 @@ import { getComparisonWindows } from "./timeWindowAggregator.service.js";
 import { recordActivity, recordSignalActivities } from "./activityRecorder.service.js";
 import { saveSignalsFromNarrative } from "./signalGenerator.service.js";
 import { generateOperationalInsight } from "../../performanceNarratorEngine.js";
-import { getMetaAccessToken } from "../utils/metaToken.js";
 import { processReportDelivery } from "./reportDelivery.service.js";
+import { resolveMetaContextForReport } from "./metaContext.service.js";
 
 const SCOPE = "ReportRunner";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -249,12 +249,16 @@ const buildReportRunDocument = ({
   emailHtml,
   internalReport,
   clientReport,
+  metaAdAccount,
   now,
   options,
 }) => ({
   agency_id: report.agency_id,
   client_id: report.client_id,
   report_id: report._id,
+  meta_ad_account_id: metaAdAccount._id,
+  meta_account_external_id_snapshot: metaAdAccount.ad_account_id,
+  meta_account_name_snapshot: metaAdAccount.name,
   triggered_by: options.userId || report.created_by,
   trigger_type: options.triggerType || "api",
   status: mapRunStatus(narrative),
@@ -317,31 +321,8 @@ export const runReport = async (reportId, options = {}) => {
     };
   }
 
-  const connection = await MetaConnection.findOne({
-    agency_id: report.agency_id,
-    client_id: report.client_id,
-    is_active: true,
-  }).select("+access_token +access_token_encrypted");
-
-  if (!connection) {
-    throw new Error("Active Meta connection not found for client");
-  }
-
-  if (connection.token_expires_at && connection.token_expires_at <= now) {
-    connection.is_active = false;
-    await connection.save();
-    throw new Error("Meta access token expired. Please reconnect Meta.");
-  }
-
-  if (!connection.ad_account_id) {
-    throw new Error("Meta ad account not selected for client");
-  }
-
-  const accessToken = getMetaAccessToken(connection);
-
-  if (!accessToken) {
-    throw new Error("Meta token missing. Please reconnect Meta.");
-  }
+  const metaContext = await resolveMetaContextForReport(report);
+  const { accessToken, metaAdAccount, externalAdAccountId } = metaContext;
 
   const client = await Client.findOne({
     _id: report.client_id,
@@ -356,13 +337,13 @@ export const runReport = async (reportId, options = {}) => {
   const [currentInsights, previousInsights] = await Promise.all([
     fetchMetaInsights({
       accessToken,
-      adAccountId: connection.ad_account_id,
+      adAccountId: externalAdAccountId,
       dateRange: period.current,
       campaigns: report.monitored_campaigns,
     }),
     fetchMetaInsights({
       accessToken,
-      adAccountId: connection.ad_account_id,
+      adAccountId: externalAdAccountId,
       dateRange: period.previous,
       campaigns: report.monitored_campaigns,
     }),
@@ -377,7 +358,7 @@ export const runReport = async (reportId, options = {}) => {
   if (shouldUseHistoricalFallback(comparison)) {
     const historicalComparison = await buildHistoricalFallbackComparison({
       accessToken,
-      adAccountId: connection.ad_account_id,
+      adAccountId: externalAdAccountId,
       campaigns: report.monitored_campaigns,
       reportType: report.type,
       scheduledPeriod: period,
@@ -410,7 +391,7 @@ export const runReport = async (reportId, options = {}) => {
         clientId: report.client_id,
         reportId: report._id,
         reportName: report.name,
-        adAccountId: connection.ad_account_id,
+        adAccountId: externalAdAccountId,
         campaignName:
           report.monitored_campaigns?.length === 1
             ? report.monitored_campaigns[0].campaign_name
@@ -516,6 +497,7 @@ export const runReport = async (reportId, options = {}) => {
       emailHtml,
       internalReport,
       clientReport,
+      metaAdAccount,
       now,
       options,
     })
@@ -536,9 +518,10 @@ export const runReport = async (reportId, options = {}) => {
     skipped: false,
     report,
     connection: {
-      ad_account_id: connection.ad_account_id,
-      ad_account_name: connection.ad_account_name,
+      ad_account_id: externalAdAccountId,
+      ad_account_name: metaAdAccount.name,
     },
+    metaAdAccount,
     comparison,
     narrative,
     reportRun,
@@ -562,6 +545,7 @@ export const runDueReports = async (options = {}) => {
   const reports = await Report.find({
     status: "active",
     next_run_at: { $lte: now },
+    ...(options.agencyId ? { agency_id: options.agencyId } : {}),
   }).sort({ next_run_at: 1 });
   const results = [];
 
@@ -591,6 +575,34 @@ export const runDueReports = async (options = {}) => {
         metadata: {
           error: err.message,
         },
+      }).catch(() => null);
+
+      await ReportRun.create({
+        agency_id: report.agency_id,
+        client_id: report.client_id,
+        report_id: report._id,
+        meta_ad_account_id: report.meta_ad_account_id || null,
+        meta_account_external_id_snapshot:
+          report.meta_account_external_id_snapshot || null,
+        meta_account_name_snapshot: report.meta_account_name_snapshot || null,
+        triggered_by: options.userId || report.created_by,
+        trigger_type: options.triggerType || "scheduled",
+        status: "failed",
+        severity: "high",
+        summary: err.message,
+        period: {},
+        comparison: {},
+        narrative: {
+          status: "failed",
+          reason: err.message,
+          code: err.code || "REPORT_RUN_FAILED",
+        },
+        engine_output: {
+          status: "failed",
+          reason: err.message,
+          code: err.code || "REPORT_RUN_FAILED",
+        },
+        ran_at: now,
       }).catch(() => null);
     }
   }

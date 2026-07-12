@@ -44,8 +44,9 @@ export const manualSendReport = async (req, res) => {
       reportId: req.body?.reportId,
     });
 
-    return res.status(500).json({
+    return res.status(err.status || 500).json({
       success: false,
+      code: err.code || "REPORT_RUN_FAILED",
       message: err.message,
     });
   }
