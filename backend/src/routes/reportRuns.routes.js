@@ -7,6 +7,7 @@ import {
   getReportRunQuickLook,
 } from "../controllers/reportRuns.controller.js";
 import { requireWorkspaceMember } from "../middlewares/workspaceAccess.js";
+import { requireReportExecutionIntegrity } from "../middlewares/reportExecutionIntegrity.js";
 
 const reportRunsRouter = Router();
 
@@ -21,6 +22,7 @@ reportRunsRouter.post(
   "/:reportRunId/client-report/approve-send",
   protect,
   requireWorkspaceMember,
+  requireReportExecutionIntegrity,
   approveAndSendClientReport
 );
 

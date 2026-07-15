@@ -6,6 +6,16 @@ export const generateMetaReport = async (reportId, options = {}) => {
     force: options.force ?? true,
   });
 
+  if (result.skipped) {
+    return {
+      ...result,
+      reportId: result.report?._id || reportId,
+      reportName: result.report?.name || null,
+      agencyId: result.report?.agency_id || options.agencyId || null,
+      clientId: result.report?.client_id || null,
+    };
+  }
+
   return {
     reportId: result.report._id,
     reportName: result.report.name,

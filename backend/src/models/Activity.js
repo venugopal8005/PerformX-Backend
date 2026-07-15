@@ -26,6 +26,10 @@ const activitySchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    idempotency_key: {
+      type: String,
+      trim: true,
+    },
     type: {
       type: String,
       enum: [
@@ -35,6 +39,7 @@ const activitySchema = new mongoose.Schema(
         "client_created",
         "client_updated",
         "client_deleted",
+        "client_archived",
         "signal_detected",
         "decision_generated",
         "report_created",
@@ -48,6 +53,7 @@ const activitySchema = new mongoose.Schema(
         "meta_account_unassigned",
         "report_paused",
         "report_started",
+        "report_archived",
       ],
       required: true,
       index: true,
@@ -85,6 +91,7 @@ activitySchema.index({ agency_id: 1, client_id: 1, createdAt: -1 });
 activitySchema.index({ agency_id: 1, report_id: 1, createdAt: -1 });
 activitySchema.index({ agency_id: 1, type: 1, createdAt: -1 });
 activitySchema.index({ agency_id: 1, severity: 1, createdAt: -1 });
+activitySchema.index({ idempotency_key: 1 }, { unique: true, sparse: true });
 
 export const Activity =
   mongoose.models.Activity || mongoose.model("Activity", activitySchema);

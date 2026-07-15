@@ -1,11 +1,15 @@
+import crypto from "crypto";
+
 import {
   formatPerformanceEmail,
 } from "../utils/performanceEmailFormatter.js";
+import { ReportRun } from "../models/index.js";
 import { logAction, logError } from "../utils/controllerLogger.js";
 
 const SCOPE = "ReportDelivery";
 const DEFAULT_WEBHOOK_TIMEOUT_MS = 30_000;
 const MAX_WEBHOOK_TIMEOUT_MS = 120_000;
+const DELIVERY_CLAIM_MS = 3 * 60 * 1000;
 
 const CLIENT_DELIVERY_MODES = new Set([
   "generate_only",
@@ -51,7 +55,7 @@ export const normalizeSafetySettings = (value = {}) => ({
     defaultSafetySettings.notify_team_when_held,
 });
 
-const toRecipientStatus = (recipients, status, error = null) =>
+export const toRecipientStatus = (recipients, status, error = null) =>
   normalizeEmailList(recipients).map((email) => ({
     email,
     status,
@@ -292,11 +296,23 @@ const webhookTimeoutMs = () => {
   return Math.min(configured, MAX_WEBHOOK_TIMEOUT_MS);
 };
 
-const createDeliveryError = (message, { code, category, status = 502, cause } = {}) => {
+const createDeliveryError = (
+  message,
+  {
+    code,
+    category,
+    status = 502,
+    cause,
+    responseStatus = null,
+    ambiguous = false,
+  } = {}
+) => {
   const error = new Error(message, cause ? { cause } : undefined);
   error.code = code || "EMAIL_WEBHOOK_FAILED";
   error.category = category || "unknown";
   error.status = status;
+  error.responseStatus = responseStatus;
+  error.ambiguous = ambiguous;
   return error;
 };
 
@@ -333,7 +349,13 @@ export const getReportEmailWebhookConfig = () => {
   }
 };
 
-const deliveryLogContext = (reportType, recipients, metadata, webhook) => ({
+const deliveryLogContext = (
+  reportType,
+  recipients,
+  metadata,
+  webhook,
+  idempotencyKey
+) => ({
   agencyId: metadata.agencyId || null,
   clientId: metadata.clientId || null,
   reportId: metadata.reportId || null,
@@ -342,6 +364,7 @@ const deliveryLogContext = (reportType, recipients, metadata, webhook) => ({
   recipientCount: recipients.length,
   webhookConfigured: webhook.configured,
   webhookHost: webhook.host,
+  idempotencyKeyPrefix: idempotencyKey?.slice(0, 24) || null,
 });
 
 export const sendReportEmail = async ({
@@ -351,6 +374,7 @@ export const sendReportEmail = async ({
   text,
   reportType,
   metadata = {},
+  idempotencyKey = null,
 }) => {
   const cleanedRecipients = normalizeEmailList(recipients);
 
@@ -362,12 +386,29 @@ export const sendReportEmail = async ({
     });
   }
 
+  if (!String(subject || "").trim()) {
+    throw createDeliveryError("Email subject is required.", {
+      code: "EMAIL_SUBJECT_MISSING",
+      category: "validation",
+      status: 400,
+    });
+  }
+
+  if (!String(html || "").trim()) {
+    throw createDeliveryError("Email HTML body is required.", {
+      code: "EMAIL_BODY_MISSING",
+      category: "validation",
+      status: 400,
+    });
+  }
+
   const webhook = getReportEmailWebhookConfig();
   const logContext = deliveryLogContext(
     reportType,
     cleanedRecipients,
     metadata,
-    webhook
+    webhook,
+    idempotencyKey
   );
 
   logAction(SCOPE, "EMAIL_DELIVERY_PREPARED", logContext, "blue");
@@ -398,6 +439,9 @@ export const sendReportEmail = async ({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(idempotencyKey
+          ? { "x-idempotency-key": idempotencyKey }
+          : {}),
       },
       body: JSON.stringify({
         email: cleanedRecipients[0],
@@ -410,6 +454,9 @@ export const sendReportEmail = async ({
         senderName: metadata.senderName || "Narrative",
         ...metadata,
         reportType,
+        ...(idempotencyKey
+          ? { idempotency_key: idempotencyKey }
+          : {}),
       }),
       signal: AbortSignal.timeout(webhook.timeoutMs),
     });
@@ -424,6 +471,7 @@ export const sendReportEmail = async ({
         category: timedOut ? "timeout" : "network",
         status: timedOut ? 504 : 502,
         cause: err,
+        ambiguous: true,
       }
     );
     logError(SCOPE, "EMAIL_WEBHOOK_REQUEST_FAILED", error, {
@@ -439,12 +487,16 @@ export const sendReportEmail = async ({
   }, response.ok ? "green" : "yellow");
 
   if (!response.ok) {
+    // Delivery truth boundary: after fetch starts, a non-2xx response does not
+    // prove the downstream workflow or Gmail did not process the message.
     const error = createDeliveryError(
       `Email webhook returned HTTP ${response.status}.`,
       {
-        code: "EMAIL_WEBHOOK_RESPONSE_FAILED",
+        code: "EMAIL_WEBHOOK_RESPONSE_UNCERTAIN",
         category: "response",
         status: 502,
+        responseStatus: response.status,
+        ambiguous: true,
       }
     );
     logError(SCOPE, "EMAIL_WEBHOOK_RESPONSE_FAILED", error, {
@@ -486,25 +538,32 @@ const buildNotificationHtml = ({ title, intro, reasons = [], reportUrl }) => `
   </body>
 </html>`;
 
-export const notifyInternalTeam = async ({
-  recipients,
-  subject,
-  title,
-  intro,
-  reasons,
-  reportUrl,
-  metadata,
-}) =>
-  sendReportEmail({
-    recipients,
-    subject,
-    html: buildNotificationHtml({ title, intro, reasons, reportUrl }),
-    text: [intro, ...(reasons || [])].join("\n"),
-    reportType: "internal_notification",
-    metadata,
-  });
+export const buildDeliveryIdempotencyKey = ({
+  reportRunId,
+  audience,
+  unit = "batch",
+}) => `${reportRunId}:${audience}:${unit}`;
 
-const baseReportArtifact = ({ subject, html, text, recipients, deliveryMode }) => ({
+const buildDispatchState = ({ idempotencyKey, status = "pending" }) => ({
+  idempotency_key: idempotencyKey,
+  status,
+  attempt_count: 0,
+  attempt_id: null,
+  claimed_at: null,
+  claim_expires_at: null,
+  last_attempt_at: null,
+  sent_at: null,
+  last_error: null,
+});
+
+const baseReportArtifact = ({
+  subject,
+  html,
+  text,
+  recipients,
+  deliveryMode,
+  dispatch,
+}) => ({
   status: "generated",
   delivery_mode: deliveryMode,
   subject,
@@ -513,18 +572,170 @@ const baseReportArtifact = ({ subject, html, text, recipients, deliveryMode }) =
   sent_at: null,
   approved_at: null,
   approved_by: null,
+  cancelled_at: null,
+  cancelled_by: null,
   recipients: toRecipientStatus(recipients, "pending"),
   safety: {
     passed: null,
     reasons: [],
     warnings: [],
   },
+  dispatch,
 });
 
-const notificationArtifact = (status, error = null) => ({
-  status,
-  error,
-});
+const buildNotificationArtifact = ({
+  reportRunId,
+  kind,
+  recipients,
+  subject,
+  title,
+  intro,
+  reasons,
+  reportUrl,
+}) => {
+  const html = buildNotificationHtml({ title, intro, reasons, reportUrl });
+  return {
+    kind,
+    status: "generated",
+    subject,
+    html,
+    text: [intro, ...(reasons || [])].join("\n"),
+    sent_at: null,
+    recipients: toRecipientStatus(recipients, "pending"),
+    delivery_error: null,
+    dispatch: buildDispatchState({
+      idempotencyKey: buildDeliveryIdempotencyKey({
+        reportRunId,
+        audience: "notification",
+        unit: `${kind}:batch`,
+      }),
+    }),
+  };
+};
+
+export const prepareReportDelivery = ({
+  reportRunId,
+  report,
+  narrative,
+  comparison,
+  clientName,
+  generatedAt,
+  reportUrl,
+}) => {
+  const { internalRecipients, clientRecipients } = resolveReportRecipients(report);
+  const deliveryMode = normalizeClientDeliveryMode(report.client_delivery_mode);
+  const safetySettings = normalizeSafetySettings(report.safety_settings);
+  const artifacts = buildReportArtifacts({
+    report,
+    narrative,
+    comparison,
+    clientName,
+    generatedAt,
+  });
+  const internalReport = {
+    status: "generated",
+    subject: artifacts.internalReport.subject,
+    html: artifacts.internalReport.html,
+    text: artifacts.internalReport.text,
+    sent_at: null,
+    recipients: toRecipientStatus(internalRecipients, "pending"),
+    delivery_error: null,
+    dispatch: buildDispatchState({
+      idempotencyKey: buildDeliveryIdempotencyKey({
+        reportRunId,
+        audience: "internal",
+      }),
+    }),
+  };
+  const clientReport = baseReportArtifact({
+    ...artifacts.clientReport,
+    recipients: clientRecipients,
+    deliveryMode,
+    dispatch: buildDispatchState({
+      idempotencyKey: buildDeliveryIdempotencyKey({
+        reportRunId,
+        audience: "client",
+      }),
+      status: deliveryMode === "generate_only" ? "not_required" : "pending",
+    }),
+  });
+  let notification = null;
+
+  if (deliveryMode === "generate_only") {
+    return { internalReport, clientReport, notification, dateRange: artifacts.dateRange };
+  }
+
+  if (deliveryMode === "approval_required") {
+    clientReport.status = "awaiting_approval";
+    notification = buildNotificationArtifact({
+      reportRunId,
+      kind: "approval",
+      recipients: internalRecipients,
+      subject: `Client Report Ready for Approval - ${clientName} - ${artifacts.dateRange}`,
+      title: "Client report is ready for approval",
+      intro: "Narrative generated the client report and is waiting for approval before sending.",
+      reasons: [],
+      reportUrl,
+    });
+    return { internalReport, clientReport, notification, dateRange: artifacts.dateRange };
+  }
+
+  const safety = runClientReportSafetyChecks({
+    report,
+    narrative,
+    comparison,
+    clientReport,
+    clientName,
+    recipients: clientRecipients,
+  });
+  clientReport.safety = safety;
+
+  if (!safety.passed) {
+    clientReport.status = "held_for_review";
+    if (safetySettings.notify_team_when_held) {
+      notification = buildNotificationArtifact({
+        reportRunId,
+        kind: "held",
+        recipients: internalRecipients,
+        subject: `Client Report Held - ${clientName} - ${artifacts.dateRange}`,
+        title: "Client report was held",
+        intro: "Narrative did not send the client report because safety checks failed.",
+        reasons: safety.reasons,
+        reportUrl,
+      });
+    }
+  }
+
+  return { internalReport, clientReport, notification, dateRange: artifacts.dateRange };
+};
+
+const dispatchStatus = (artifact) => artifact?.dispatch?.status || null;
+
+const failureFromArtifact = (reportType, artifact) => {
+  const status = dispatchStatus(artifact);
+  if (!["failed", "uncertain"].includes(status)) return null;
+  const uncertain = status === "uncertain";
+  return {
+    reportType,
+    status,
+    code:
+      artifact?.dispatch?.last_error?.code ||
+      artifact?.delivery_error?.code ||
+      (uncertain ? "EMAIL_DELIVERY_UNCERTAIN" : "EMAIL_DELIVERY_FAILED"),
+    category: uncertain
+      ? "uncertain"
+      : artifact?.dispatch?.last_error?.category ||
+        artifact?.delivery_error?.category ||
+        "delivery",
+    message:
+      artifact?.dispatch?.last_error?.message ||
+      artifact?.delivery_error?.message ||
+      artifact?.recipients?.find((recipient) => recipient.error)?.error ||
+      (uncertain
+        ? "Email delivery may have occurred, but confirmation was lost. It was not retried."
+        : "Email delivery failed."),
+  };
+};
 
 export const summarizeReportDelivery = ({
   internalReport,
@@ -532,38 +743,20 @@ export const summarizeReportDelivery = ({
   notification = null,
 }) => {
   const failures = [];
+  const internalFailure = failureFromArtifact("internal_report", internalReport);
+  const clientFailure = failureFromArtifact("client_report", clientReport);
+  const notificationFailure = failureFromArtifact("internal_notification", notification);
+  if (internalFailure) failures.push(internalFailure);
+  if (clientFailure) failures.push(clientFailure);
+  if (notificationFailure) failures.push(notificationFailure);
 
-  if (internalReport?.status !== "sent") {
+  if (!internalFailure && internalReport?.status !== "sent") {
     failures.push({
       reportType: "internal_report",
-      status: internalReport?.status || "missing",
-      code: internalReport?.delivery_error?.code || "INTERNAL_REPORT_DELIVERY_FAILED",
-      category: internalReport?.delivery_error?.category || "delivery",
-      message:
-        internalReport?.recipients?.find((recipient) => recipient.error)?.error ||
-        "Internal report was not delivered.",
-    });
-  }
-
-  if (clientReport?.status === "failed") {
-    failures.push({
-      reportType: "client_report",
-      status: "failed",
-      code: clientReport?.delivery_error?.code || "CLIENT_REPORT_DELIVERY_FAILED",
-      category: clientReport?.delivery_error?.category || "delivery",
-      message:
-        clientReport.recipients?.find((recipient) => recipient.error)?.error ||
-        "Client report was not delivered.",
-    });
-  }
-
-  if (notification?.status === "failed") {
-    failures.push({
-      reportType: "internal_notification",
-      status: "failed",
-      code: notification.code || "INTERNAL_NOTIFICATION_DELIVERY_FAILED",
-      category: notification.category || "delivery",
-      message: notification.error || "Internal notification was not delivered.",
+      status: dispatchStatus(internalReport) || internalReport?.status || "missing",
+      code: "INTERNAL_REPORT_DELIVERY_INCOMPLETE",
+      category: "delivery",
+      message: "Internal report delivery is incomplete.",
     });
   }
 
@@ -592,225 +785,596 @@ export const summarizeReportDelivery = ({
   };
 };
 
-const withDeliverySummary = ({ internalReport, clientReport, notification = null }) => ({
-  internalReport,
-  clientReport,
-  notification,
-  delivery: summarizeReportDelivery({ internalReport, clientReport, notification }),
+const AUDIENCE_PATHS = {
+  internal: "internal_report",
+  client: "client_report",
+  notification: "notification",
+};
+
+const getByPath = (value, path) =>
+  path.split(".").reduce((current, key) => current?.[key], value);
+
+const leanQuery = async (query) =>
+  typeof query?.lean === "function" ? query.lean() : query;
+
+export const inferLegacyDispatchStatus = (audience, artifact) => {
+  if (artifact?.status === "sent") return "sent";
+  if (artifact?.status === "cancelled") return "not_required";
+  if (audience === "client" && artifact?.delivery_mode === "generate_only") {
+    return "not_required";
+  }
+  if (
+    artifact?.delivery_error?.category === "uncertain" ||
+    artifact?.recipients?.some?.((recipient) => recipient?.status === "uncertain")
+  ) {
+    return "uncertain";
+  }
+  if (artifact?.status === "failed") return "failed";
+  return "pending";
+};
+
+export const buildLegacyDispatchState = ({ reportRunId, audience, artifact }) => {
+  const existingDispatch =
+    artifact?.dispatch?.toObject?.() || artifact?.dispatch || {};
+  const idempotencyKey = buildDeliveryIdempotencyKey({
+    reportRunId,
+    audience,
+    unit:
+      audience === "notification"
+        ? `${artifact?.kind || "report"}:batch`
+        : "batch",
+  });
+
+  return {
+    ...buildDispatchState({ idempotencyKey }),
+    ...existingDispatch,
+    idempotency_key: existingDispatch.idempotency_key || idempotencyKey,
+    status: inferLegacyDispatchStatus(audience, artifact),
+  };
+};
+
+export const ensureReportDispatchState = async ({
+  reportRunId,
+  audience,
+  ReportRunModel = ReportRun,
+}) => {
+  const path = AUDIENCE_PATHS[audience];
+  if (!path) throw new Error(`Unknown report delivery audience: ${audience}`);
+
+  let reportRun = await leanQuery(ReportRunModel.findById(reportRunId));
+  const artifact = getByPath(reportRun, path);
+  if (!artifact) {
+    const error = new Error(`${audience} report artifact is missing.`);
+    error.code = "REPORT_ARTIFACT_MISSING";
+    error.status = 400;
+    throw error;
+  }
+  if (artifact.dispatch?.status) return reportRun;
+
+  await ReportRunModel.updateOne(
+    {
+      _id: reportRunId,
+      $or: [
+        { [`${path}.dispatch`]: { $exists: false } },
+        { [`${path}.dispatch`]: null },
+        { [`${path}.dispatch.status`]: { $exists: false } },
+      ],
+    },
+    {
+      $set: {
+        [`${path}.dispatch`]: buildLegacyDispatchState({
+          reportRunId,
+          audience,
+          artifact,
+        }),
+      },
+    }
+  );
+  reportRun = await leanQuery(ReportRunModel.findById(reportRunId));
+  return reportRun;
+};
+
+const currentDispatchOutcome = (artifact) => {
+  const status = artifact?.dispatch?.status || "pending";
+  if (status === "sent") return "already_sent";
+  if (status === "uncertain") return "uncertain";
+  if (status === "not_required") return "not_required";
+  if (status === "dispatching") return "in_progress";
+  if (status === "failed") return "failed";
+  return "pending";
+};
+
+export const claimReportDelivery = async ({
+  reportRunId,
+  audience,
+  allowFailedRetry = false,
+  now = new Date(),
+  attemptId = crypto.randomUUID(),
+  claimSet = {},
+  ReportRunModel = ReportRun,
+}) => {
+  const path = AUDIENCE_PATHS[audience];
+  let reportRun = await ensureReportDispatchState({
+    reportRunId,
+    audience,
+    ReportRunModel,
+  });
+  let artifact = getByPath(reportRun, path);
+  const existingStatus = artifact.dispatch.status;
+
+  if (existingStatus === "dispatching") {
+    const claimExpiresAt = artifact.dispatch.claim_expires_at
+      ? new Date(artifact.dispatch.claim_expires_at)
+      : null;
+    if (claimExpiresAt && claimExpiresAt <= now) {
+      await ReportRunModel.updateOne(
+        {
+          _id: reportRunId,
+          [`${path}.dispatch.status`]: "dispatching",
+          [`${path}.dispatch.attempt_id`]: artifact.dispatch.attempt_id,
+        },
+        {
+          $set: {
+            [`${path}.dispatch.status`]: "uncertain",
+            [`${path}.dispatch.last_error`]: {
+              code: "EMAIL_DISPATCH_CONFIRMATION_LOST",
+              category: "uncertain",
+              message:
+                "The delivery claim expired before confirmation. The email was not resent.",
+            },
+          },
+        }
+      );
+      reportRun = await leanQuery(ReportRunModel.findById(reportRunId));
+      artifact = getByPath(reportRun, path);
+      return {
+        claimed: false,
+        outcome: currentDispatchOutcome(artifact),
+        reportRun,
+        artifact,
+      };
+    }
+    return { claimed: false, outcome: "in_progress", reportRun, artifact };
+  }
+
+  const eligibleStatuses = allowFailedRetry ? ["pending", "failed"] : ["pending"];
+  if (!eligibleStatuses.includes(existingStatus)) {
+    return {
+      claimed: false,
+      outcome: currentDispatchOutcome(artifact),
+      reportRun,
+      artifact,
+    };
+  }
+
+  const claimed = await ReportRunModel.findOneAndUpdate(
+    {
+      _id: reportRunId,
+      [`${path}.dispatch.status`]: { $in: eligibleStatuses },
+    },
+    {
+      $set: {
+        [`${path}.dispatch.status`]: "dispatching",
+        [`${path}.dispatch.attempt_id`]: attemptId,
+        [`${path}.dispatch.claimed_at`]: now,
+        [`${path}.dispatch.claim_expires_at`]: new Date(
+          now.getTime() + DELIVERY_CLAIM_MS
+        ),
+        [`${path}.dispatch.last_attempt_at`]: now,
+        [`${path}.dispatch.last_error`]: null,
+        ...claimSet,
+      },
+      $inc: {
+        [`${path}.dispatch.attempt_count`]: 1,
+      },
+    },
+    { new: true }
+  );
+
+  if (!claimed) {
+    reportRun = await leanQuery(ReportRunModel.findById(reportRunId));
+    artifact = getByPath(reportRun, path);
+    return {
+      claimed: false,
+      outcome: currentDispatchOutcome(artifact),
+      reportRun,
+      artifact,
+    };
+  }
+
+  artifact = getByPath(claimed, path);
+  return { claimed: true, outcome: "claimed", reportRun: claimed, artifact, attemptId };
+};
+
+const CANCELLABLE_CLIENT_REPORT_STATUSES = [
+  "generated",
+  "awaiting_approval",
+  "held_for_review",
+  "failed",
+];
+const CANCELLABLE_CLIENT_DISPATCH_STATUSES = [
+  "pending",
+  "failed",
+];
+
+export const cancelClientReportDelivery = async ({
+  reportRunId,
+  agencyId,
+  userId = null,
+  ReportRunModel = ReportRun,
+}) => {
+  await ensureReportDispatchState({
+    reportRunId,
+    audience: "client",
+    ReportRunModel,
+  });
+
+  const cancelled = await ReportRunModel.findOneAndUpdate(
+    {
+      _id: reportRunId,
+      ...(agencyId ? { agency_id: agencyId } : {}),
+      "client_report.status": { $in: CANCELLABLE_CLIENT_REPORT_STATUSES },
+      "client_report.dispatch.status": {
+        $in: CANCELLABLE_CLIENT_DISPATCH_STATUSES,
+      },
+    },
+    {
+      $set: {
+        "client_report.status": "cancelled",
+        "client_report.dispatch.status": "not_required",
+        "client_report.cancelled_at": new Date(),
+        "client_report.cancelled_by": userId || null,
+      },
+    },
+    { new: true }
+  );
+
+  if (cancelled) {
+    return { outcome: "cancelled", reportRun: cancelled };
+  }
+
+  const reportRun = await leanQuery(ReportRunModel.findById(reportRunId));
+  const clientReport = reportRun?.client_report;
+  const dispatch = clientReport?.dispatch?.status;
+
+  if (clientReport?.status === "cancelled") {
+    return { outcome: "already_cancelled", reportRun };
+  }
+  if (clientReport?.status === "sent" || dispatch === "sent") {
+    return { outcome: "already_sent", reportRun };
+  }
+  if (dispatch === "dispatching") {
+    return { outcome: "in_progress", reportRun };
+  }
+  if (dispatch === "uncertain") {
+    return { outcome: "uncertain", reportRun };
+  }
+  return { outcome: "not_cancellable", reportRun };
+};
+
+const sanitizedDeliveryError = (error, uncertain = false) => ({
+  code: error?.code || (uncertain ? "EMAIL_DELIVERY_UNCERTAIN" : "EMAIL_DELIVERY_FAILED"),
+  category: uncertain ? "uncertain" : error?.category || "delivery",
+  message: String(error?.message || "Email delivery failed.").slice(0, 500),
+  http_status: Number.isInteger(error?.responseStatus)
+    ? error.responseStatus
+    : null,
 });
 
-export const processReportDelivery = async ({
-  report,
-  narrative,
-  comparison,
-  clientName,
-  generatedAt,
-  reportUrl,
-  metadata = {},
+const markPredispatchFailure = async ({
+  reportRunId,
+  audience,
+  error,
+  failureStatus,
+  ReportRunModel,
 }) => {
-  const { internalRecipients, clientRecipients } = resolveReportRecipients(report);
-  const deliveryMode = normalizeClientDeliveryMode(report.client_delivery_mode);
-  const safetySettings = normalizeSafetySettings(report.safety_settings);
+  const path = AUDIENCE_PATHS[audience];
+  const payload = sanitizedDeliveryError(error, false);
+  const persisted = await ReportRunModel.updateOne(
+    {
+      _id: reportRunId,
+      [`${path}.dispatch.status`]: { $in: ["pending", "failed"] },
+    },
+    {
+      $set: {
+        [`${path}.dispatch.status`]: "failed",
+        [`${path}.dispatch.last_attempt_at`]: new Date(),
+        [`${path}.dispatch.last_error`]: payload,
+        [`${path}.status`]: failureStatus,
+        [`${path}.delivery_error`]: payload,
+      },
+    }
+  );
+  const reportRun = await leanQuery(ReportRunModel.findById(reportRunId));
+  const artifact = getByPath(reportRun, path);
+  return {
+    outcome:
+      persisted.matchedCount === 1
+        ? "failed"
+        : currentDispatchOutcome(artifact),
+    reportRun,
+    artifact,
+    error,
+  };
+};
 
-  logAction(SCOPE, "DELIVERY_PROCESS_STARTED", {
-    agencyId: report.agency_id,
-    clientId: report.client_id,
-    reportId: report._id,
-    reportName: report.name,
-    clientName,
-    deliveryMode,
-    internalRecipientCount: internalRecipients.length,
-    clientRecipientCount: clientRecipients.length,
-    safetySettings,
+export const dispatchReportRunArtifact = async ({
+  reportRunId,
+  audience,
+  metadata = {},
+  allowFailedRetry = false,
+  failureStatus = "failed",
+  uncertainStatus = "generated",
+  claimSet = {},
+  ReportRunModel = ReportRun,
+  sendEmail = sendReportEmail,
+}) => {
+  const path = AUDIENCE_PATHS[audience];
+  let reportRun = await ensureReportDispatchState({
+    reportRunId,
+    audience,
+    ReportRunModel,
+  });
+  let artifact = getByPath(reportRun, path);
+  const existingOutcome = currentDispatchOutcome(artifact);
+  if (!["pending", "failed"].includes(existingOutcome)) {
+    return claimReportDelivery({
+      reportRunId,
+      audience,
+      allowFailedRetry,
+      claimSet,
+      ReportRunModel,
+    });
+  }
+  if (existingOutcome === "failed" && !allowFailedRetry) {
+    return {
+      claimed: false,
+      outcome: "failed",
+      reportRun,
+      artifact,
+    };
+  }
+  const recipients = normalizeEmailList(
+    artifact.recipients?.map((recipient) => recipient.email) || []
+  );
+  const webhook = getReportEmailWebhookConfig();
+
+  if (!recipients.length || !artifact.subject || !artifact.html || !webhook.configured) {
+    const error = !recipients.length
+      ? createDeliveryError("No recipients selected.", {
+          code: "EMAIL_RECIPIENTS_MISSING",
+          category: "validation",
+          status: 400,
+        })
+      : !artifact.subject || !artifact.html
+        ? createDeliveryError("The persisted report email artifact is incomplete.", {
+            code: "REPORT_ARTIFACT_INCOMPLETE",
+            category: "validation",
+            status: 400,
+          })
+        : createDeliveryError(
+            webhook.invalid
+              ? "REPORT_EMAIL_WEBHOOK_URL is invalid."
+              : "REPORT_EMAIL_WEBHOOK_URL is not configured.",
+            {
+              code: webhook.invalid
+                ? "EMAIL_WEBHOOK_URL_INVALID"
+                : "EMAIL_WEBHOOK_NOT_CONFIGURED",
+              category: "configuration",
+              status: 503,
+            }
+          );
+    return markPredispatchFailure({
+      reportRunId,
+      audience,
+      error,
+      failureStatus,
+      ReportRunModel,
+    });
+  }
+
+  const claim = await claimReportDelivery({
+    reportRunId,
+    audience,
+    allowFailedRetry,
+    claimSet,
+    ReportRunModel,
+  });
+  if (!claim.claimed) return claim;
+
+  artifact = claim.artifact;
+  const reportType = audience === "notification" ? "internal_notification" : `${audience}_report`;
+  const idempotencyKey = artifact.dispatch.idempotency_key;
+
+  logAction(SCOPE, "EMAIL_DISPATCH_CLAIMED", {
+    reportRunId,
+    audience,
+    idempotencyKeyPrefix: idempotencyKey.slice(0, 24),
+    attemptCount: artifact.dispatch.attempt_count,
   }, "cyan");
 
-  const artifacts = buildReportArtifacts({
-    report,
-    narrative,
-    comparison,
-    clientName,
-    generatedAt,
-  });
-  const internalReport = {
-    status: "generated",
-    subject: artifacts.internalReport.subject,
-    html: artifacts.internalReport.html,
-    text: artifacts.internalReport.text,
-    sent_at: null,
-    recipients: toRecipientStatus(internalRecipients, "pending"),
-  };
-  const clientReport = baseReportArtifact({
-    ...artifacts.clientReport,
-    recipients: clientRecipients,
-    deliveryMode,
-  });
-
+  let delivery;
   try {
-    const delivery = await sendReportEmail({
-      recipients: internalRecipients,
-      subject: internalReport.subject,
-      html: internalReport.html,
-      text: internalReport.text,
-      reportType: "internal_report",
-      metadata,
+    delivery = await sendEmail({
+      recipients,
+      subject: artifact.subject,
+      html: artifact.html,
+      text: artifact.text,
+      reportType,
+      metadata: { ...metadata, reportRunId },
+      idempotencyKey,
     });
-
-    internalReport.status = "sent";
-    internalReport.sent_at = delivery.sentAt;
-    internalReport.recipients = delivery.recipients;
-    logAction(SCOPE, "INTERNAL_REPORT_SENT", {
-      reportId: report._id,
-      subject: internalReport.subject,
-      recipientCount: internalRecipients.length,
-    }, "green");
-  } catch (err) {
-    internalReport.status = "failed";
-    internalReport.delivery_error = {
-      code: err.code || "INTERNAL_REPORT_DELIVERY_FAILED",
-      category: err.category || "delivery",
-    };
-    internalReport.recipients = toRecipientStatus(internalRecipients, "failed", err.message);
-    logError(SCOPE, "INTERNAL_REPORT_SEND_FAILED", err, {
-      reportId: report._id,
-      subject: internalReport.subject,
-      recipientCount: internalRecipients.length,
-    });
-  }
-
-  if (deliveryMode === "generate_only") {
-    clientReport.status = "generated";
-    logAction(SCOPE, "CLIENT_REPORT_GENERATED_ONLY", {
-      reportId: report._id,
-      subject: clientReport.subject,
-      recipientCount: clientRecipients.length,
-    }, "magenta");
-    return withDeliverySummary({ internalReport, clientReport });
-  }
-
-  if (deliveryMode === "approval_required") {
-    clientReport.status = "awaiting_approval";
-    logAction(SCOPE, "CLIENT_REPORT_AWAITING_APPROVAL", {
-      reportId: report._id,
-      subject: clientReport.subject,
-      recipientCount: clientRecipients.length,
-      reportUrl,
-    }, "yellow");
-
-    let notification;
-    try {
-      await notifyInternalTeam({
-        recipients: internalRecipients,
-        subject: `Client Report Ready for Approval - ${clientName} - ${artifacts.dateRange}`,
-        title: "Client report is ready for approval",
-        intro: "Narrative generated the client report and is waiting for approval before sending.",
-        reasons: [],
-        reportUrl,
-        metadata: { ...metadata, notificationType: "approval_notification" },
-      });
-      notification = notificationArtifact("sent");
-    } catch (err) {
-      notification = {
-        ...notificationArtifact("failed", err.message),
-        code: err.code,
-        category: err.category,
-      };
-      logError(SCOPE, "APPROVAL_NOTIFICATION_FAILED", err, {
-        reportId: report._id,
-        recipientCount: internalRecipients.length,
-      });
-    }
-
-    return withDeliverySummary({ internalReport, clientReport, notification });
-  }
-
-  const safety = runClientReportSafetyChecks({
-    report,
-    narrative,
-    comparison,
-    clientReport,
-    clientName,
-    recipients: clientRecipients,
-  });
-
-  clientReport.safety = safety;
-  logAction(SCOPE, "CLIENT_REPORT_SAFETY_CHECKED", {
-    reportId: report._id,
-    deliveryMode,
-    passed: safety.passed,
-    reasons: safety.reasons,
-    warnings: safety.warnings,
-  }, safety.passed ? "green" : "yellow");
-
-  if (!safety.passed) {
-    clientReport.status = "held_for_review";
-    logAction(SCOPE, "CLIENT_REPORT_HELD_FOR_REVIEW", {
-      reportId: report._id,
-      subject: clientReport.subject,
-      reasons: safety.reasons,
-      notifyTeam: safetySettings.notify_team_when_held,
-    }, "yellow");
-
-    let notification;
-    if (safetySettings.notify_team_when_held) {
-      try {
-        await notifyInternalTeam({
-          recipients: internalRecipients,
-          subject: `Client Report Held - ${clientName} - ${artifacts.dateRange}`,
-          title: "Client report was held",
-          intro: "Narrative did not send the client report because safety checks failed.",
-          reasons: safety.reasons,
-          reportUrl,
-          metadata: { ...metadata, notificationType: "held_notification" },
-        });
-        notification = notificationArtifact("sent");
-      } catch (err) {
-        notification = {
-          ...notificationArtifact("failed", err.message),
-          code: err.code,
-          category: err.category,
-        };
-        logError(SCOPE, "HELD_NOTIFICATION_FAILED", err, {
-          reportId: report._id,
-          recipientCount: internalRecipients.length,
-          reasons: safety.reasons,
-        });
+  } catch (error) {
+    const uncertain = error?.ambiguous === true;
+    const outcome = uncertain ? "uncertain" : "failed";
+    const recipientStatus = uncertain ? "uncertain" : "failed";
+    const payload = sanitizedDeliveryError(error, uncertain);
+    const persisted = await ReportRunModel.updateOne(
+      {
+        _id: reportRunId,
+        [`${path}.dispatch.status`]: "dispatching",
+        [`${path}.dispatch.attempt_id`]: claim.attemptId,
+      },
+      {
+        $set: {
+          [`${path}.dispatch.status`]: outcome,
+          [`${path}.dispatch.claim_expires_at`]: null,
+          [`${path}.dispatch.last_error`]: payload,
+          [`${path}.status`]: uncertain ? uncertainStatus : failureStatus,
+          [`${path}.recipients`]: toRecipientStatus(
+            recipients,
+            recipientStatus,
+            payload.message
+          ),
+          [`${path}.delivery_error`]: payload,
+        },
       }
-    }
-
-    return withDeliverySummary({ internalReport, clientReport, notification });
-  }
-
-  try {
-    const delivery = await sendReportEmail({
-      recipients: clientRecipients,
-      subject: clientReport.subject,
-      html: clientReport.html,
-      text: clientReport.text,
-      reportType: "client_report",
-      metadata,
+    );
+    reportRun = await leanQuery(ReportRunModel.findById(reportRunId));
+    artifact = getByPath(reportRun, path);
+    const persistedOutcome =
+      persisted.matchedCount === 1
+        ? outcome
+        : currentDispatchOutcome(artifact);
+    logError(SCOPE, uncertain ? "EMAIL_DISPATCH_UNCERTAIN" : "EMAIL_DISPATCH_FAILED", error, {
+      reportRunId,
+      audience,
+      idempotencyKeyPrefix: idempotencyKey.slice(0, 24),
     });
-
-    clientReport.status = "sent";
-    clientReport.sent_at = delivery.sentAt;
-    clientReport.recipients = delivery.recipients;
-    logAction(SCOPE, "CLIENT_REPORT_AUTO_SENT", {
-      reportId: report._id,
-      subject: clientReport.subject,
-      recipientCount: clientRecipients.length,
-    }, "green");
-  } catch (err) {
-    clientReport.status = "failed";
-    clientReport.delivery_error = {
-      code: err.code || "CLIENT_REPORT_DELIVERY_FAILED",
-      category: err.category || "delivery",
+    return {
+      outcome: persistedOutcome,
+      reportRun,
+      artifact,
+      error,
     };
-    clientReport.recipients = toRecipientStatus(clientRecipients, "failed", err.message);
-    logError(SCOPE, "CLIENT_REPORT_AUTO_SEND_FAILED", err, {
-      reportId: report._id,
-      subject: clientReport.subject,
-      recipientCount: clientRecipients.length,
-    });
   }
 
-  return withDeliverySummary({ internalReport, clientReport });
+  const sentAt = delivery.sentAt || new Date();
+  try {
+    const persisted = await ReportRunModel.updateOne(
+      {
+        _id: reportRunId,
+        [`${path}.dispatch.status`]: "dispatching",
+        [`${path}.dispatch.attempt_id`]: claim.attemptId,
+      },
+      {
+        $set: {
+          [`${path}.dispatch.status`]: "sent",
+          [`${path}.dispatch.sent_at`]: sentAt,
+          [`${path}.dispatch.claim_expires_at`]: null,
+          [`${path}.dispatch.last_error`]: null,
+          [`${path}.status`]: "sent",
+          [`${path}.sent_at`]: sentAt,
+          [`${path}.recipients`]: delivery.recipients,
+          [`${path}.delivery_error`]: null,
+        },
+      }
+    );
+    if (persisted.matchedCount !== 1) {
+      const error = new Error(
+        "Email was accepted by the webhook, but its sent state could not be claimed."
+      );
+      error.code = "EMAIL_SENT_STATE_PERSIST_FAILED";
+      throw error;
+    }
+  } catch (error) {
+    error.code = error.code || "EMAIL_SENT_STATE_PERSIST_FAILED";
+    error.ambiguous = true;
+    throw error;
+  }
+  reportRun = await leanQuery(ReportRunModel.findById(reportRunId));
+  return {
+    outcome: "sent",
+    reportRun,
+    artifact: getByPath(reportRun, path),
+    sentAt,
+  };
+};
+
+export const processPersistedReportDelivery = async ({
+  reportRunId,
+  metadata = {},
+  allowFailedRetry = false,
+  ReportRunModel = ReportRun,
+  sendEmail = sendReportEmail,
+}) => {
+  await ReportRunModel.updateOne(
+    {
+      _id: reportRunId,
+      execution_stage: { $in: ["artifacts_ready", "delivering"] },
+    },
+    { $set: { execution_stage: "delivering" } }
+  );
+
+  const outcomes = [];
+  outcomes.push(
+    await dispatchReportRunArtifact({
+      reportRunId,
+      audience: "internal",
+      metadata,
+      allowFailedRetry,
+      failureStatus: "failed",
+      uncertainStatus: "generated",
+      ReportRunModel,
+      sendEmail,
+    })
+  );
+
+  let reportRun = await leanQuery(ReportRunModel.findById(reportRunId));
+  if (reportRun.notification) {
+    outcomes.push(
+      await dispatchReportRunArtifact({
+        reportRunId,
+        audience: "notification",
+        metadata: {
+          ...metadata,
+          notificationType: `${reportRun.notification.kind}_notification`,
+        },
+        allowFailedRetry,
+        failureStatus: "failed",
+        uncertainStatus: "generated",
+        ReportRunModel,
+        sendEmail,
+      })
+    );
+  }
+
+  reportRun = await leanQuery(ReportRunModel.findById(reportRunId));
+  const clientReport = reportRun.client_report;
+  if (
+    clientReport?.delivery_mode === "auto_send" &&
+    clientReport?.safety?.passed === true
+  ) {
+    outcomes.push(
+      await dispatchReportRunArtifact({
+        reportRunId,
+        audience: "client",
+        metadata,
+        allowFailedRetry,
+        failureStatus: "failed",
+        uncertainStatus: "generated",
+        ReportRunModel,
+        sendEmail,
+      })
+    );
+  }
+
+  reportRun = await leanQuery(ReportRunModel.findById(reportRunId));
+  const delivery = summarizeReportDelivery({
+    internalReport: reportRun.internal_report,
+    clientReport: reportRun.client_report,
+    notification: reportRun.notification,
+  });
+
+  return {
+    reportRun,
+    internalReport: reportRun.internal_report,
+    clientReport: reportRun.client_report,
+    notification: reportRun.notification,
+    delivery,
+    outcomes,
+    hasSafeFailure: outcomes.some((item) => item.outcome === "failed"),
+    hasUncertain: outcomes.some((item) => item.outcome === "uncertain"),
+    hasInProgress: outcomes.some((item) => item.outcome === "in_progress"),
+  };
 };

@@ -1,13 +1,8 @@
 import { Client } from "../models/Client.js";
-import {
-  Activity,
-  MetaAdAccount,
-  MetaConnection,
-  Report,
-  ReportRun,
-  Signal,
-} from "../models/index.js";
+import { MetaAdAccount } from "../models/index.js";
 import { recordActivity } from "../services/activityRecorder.service.js";
+import { archiveClientLifecycle } from "../services/archiveLifecycle.service.js";
+import { withOperationalClientScope } from "../utils/archiveScope.js";
 
 const requireAgency = (req, res) => {
   const agencyId = req.user?.agencyId;
@@ -73,7 +68,9 @@ export const getClients = async (req, res) => {
     const agencyId = requireAgency(req, res);
     if (!agencyId) return;
 
-    const clients = await Client.find({ agency_id: agencyId }).sort({ createdAt: -1 });
+    const clients = await Client.find(
+      withOperationalClientScope({ agency_id: agencyId })
+    ).sort({ createdAt: -1 });
     const accounts = await MetaAdAccount.find({
       agency_id: agencyId,
       client_id: { $in: clients.map((client) => client._id) },
@@ -103,12 +100,26 @@ export const getClient = async (req, res) => {
     const agencyId = requireAgency(req, res);
     if (!agencyId) return;
 
-    const client = await Client.findOne({
-      _id: req.params.clientId,
-      agency_id: agencyId,
-    });
+    const client = await Client.findOne(
+      withOperationalClientScope({
+        _id: req.params.clientId,
+        agency_id: agencyId,
+      })
+    );
 
     if (!client) {
+      const archivedClient = await Client.exists({
+        _id: req.params.clientId,
+        agency_id: agencyId,
+        is_archived: true,
+      });
+      if (archivedClient) {
+        return res.status(409).json({
+          success: false,
+          code: "CLIENT_ARCHIVED",
+          message: "Archived clients are not available in the active workspace.",
+        });
+      }
       return res.status(404).json({
         success: false,
         message: "Client not found",
@@ -148,15 +159,27 @@ export const updateClient = async (req, res) => {
       ...(status !== undefined ? { status } : {}),
     }))(req.body);
     const client = await Client.findOneAndUpdate(
-      {
+      withOperationalClientScope({
         _id: req.params.clientId,
         agency_id: agencyId,
-      },
+      }),
       updates,
       { new: true, runValidators: true }
     );
 
     if (!client) {
+      const archivedClient = await Client.exists({
+        _id: req.params.clientId,
+        agency_id: agencyId,
+        is_archived: true,
+      });
+      if (archivedClient) {
+        return res.status(409).json({
+          success: false,
+          code: "CLIENT_ARCHIVED",
+          message: "Archived clients cannot be updated.",
+        });
+      }
       return res.status(404).json({
         success: false,
         message: "Client not found",
@@ -193,81 +216,59 @@ export const deleteClient = async (req, res) => {
     const agencyId = requireAgency(req, res);
     if (!agencyId) return;
 
-    const client = await Client.findOne({
-      _id: req.params.clientId,
-      agency_id: agencyId,
+    const result = await archiveClientLifecycle({
+      agencyId,
+      clientId: req.params.clientId,
+      userId: req.user.id || req.user.userId || req.user._id,
     });
 
-    if (!client) {
+    if (result.outcome === "not_found") {
       return res.status(404).json({
         success: false,
         message: "Client not found",
       });
     }
 
-    const reports = await Report.find({
-      agency_id: agencyId,
-      client_id: client._id,
-    }).select("_id");
-    const reportIds = reports.map((report) => report._id);
+    if (result.outcome === "execution_in_progress") {
+      return res.status(409).json({
+        success: false,
+        code: "client_report_execution_in_progress",
+        message: "A report is currently running. Try archiving the client again after it finishes.",
+        reportIds: result.reportIds,
+        reportCount: result.reportIds.length,
+      });
+    }
 
-    const [reportRuns, signals, metaConnections, activities] = await Promise.all([
-      ReportRun.deleteMany({ agency_id: agencyId, client_id: client._id }),
-      Signal.deleteMany({ agency_id: agencyId, client_id: client._id }),
-      MetaConnection.deleteMany({ agency_id: agencyId, client_id: client._id }),
-      Activity.deleteMany({
-        agency_id: agencyId,
-        $or: [
-          { client_id: client._id },
-          ...(reportIds.length ? [{ report_id: { $in: reportIds } }] : []),
-        ],
-      }),
-    ]);
+    if (result.outcome === "dispatch_in_progress") {
+      return res.status(409).json({
+        success: false,
+        code: "client_report_dispatch_in_progress",
+        message: "A client report is currently being delivered. Try again after delivery finishes.",
+        reportIds: result.reportIds,
+      });
+    }
 
-    await MetaAdAccount.updateMany(
-      { agency_id: agencyId, client_id: client._id },
-      { $set: { client_id: null, assignment_scope: null } }
-    );
-
-    const deletedReports = await Report.deleteMany({
-      agency_id: agencyId,
-      client_id: client._id,
-    });
-    await Client.deleteOne({ _id: client._id, agency_id: agencyId });
-
-    await recordActivity({
-      agency_id: agencyId,
-      user_id: req.user.id,
-      type: "client_deleted",
-      title: `${client.name} client deleted`,
-      description: "Client workspace and related monitoring data were deleted.",
-      severity: "critical",
-      metadata: {
-        deleted_client_id: client._id,
-        deleted_client_name: client.name,
-        deleted_reports: deletedReports.deletedCount,
-        deleted_report_runs: reportRuns.deletedCount,
-        deleted_signals: signals.deletedCount,
-        deleted_meta_connections: metaConnections.deletedCount,
-        deleted_activities: activities.deletedCount,
-      },
-    }).catch(() => null);
+    if (result.outcome === "lifecycle_in_progress") {
+      return res.status(409).json({
+        success: false,
+        code: "client_lifecycle_operation_in_progress",
+        message: "Another client lifecycle operation is in progress. Try again shortly.",
+      });
+    }
 
     return res.json({
       success: true,
-      message: "Client deleted",
-      deleted: {
-        client_id: client._id,
-        reports: deletedReports.deletedCount,
-        report_runs: reportRuns.deletedCount,
-        signals: signals.deletedCount,
-        meta_connections: metaConnections.deletedCount,
-      },
+      message: "Client archived",
+      archived: true,
+      alreadyArchived: result.outcome === "already_archived",
+      clientId: result.client._id,
+      archivedReportCount: result.archivedReportCount || 0,
     });
   } catch (err) {
-    return res.status(500).json({
+    return res.status(err.status || 500).json({
       success: false,
-      message: err.message || "Failed to delete client",
+      code: err.code,
+      message: err.message || "Failed to archive client",
     });
   }
 };

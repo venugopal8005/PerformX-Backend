@@ -48,9 +48,10 @@ export const runAllReports = async (req, res) => {
   } catch (err) {
     logError(SCOPE, "RUN_ALL_REPORTS_FAILED", err);
 
-    return res.status(500).json({
+    return res.status(err.status || 500).json({
       success: false,
-      message: "run-all failed",
+      code: err.code || "REPORT_RUN_ALL_FAILED",
+      message: err.message || "run-all failed",
     });
   }
 };

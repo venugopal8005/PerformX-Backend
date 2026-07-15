@@ -6,7 +6,12 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node src/server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "verify:execution-integrity": "node src/scripts/verifyExecutionIntegrity.js",
+    "verify:archive-topology": "node src/scripts/verifyArchiveTopology.js",
+    "backfill:historical-snapshots": "node src/scripts/backfillHistoricalSnapshots.js",
+    "audit:report-lineage": "node src/scripts/auditReportLineage.js",
+    "audit:report-meta-bindings": "node src/scripts/auditReportMetaBindings.js"
   },
   "dependencies": {
     "auth-module": "file:../auth-module",
@@ -18,5 +23,8 @@
     "luxon": "^3.7.2",
     "mongoose": "^9.1.2",
     "node-cron": "^4.2.1"
+  },
+  "devDependencies": {
+    "mongodb-memory-server": "^11.2.0"
   }
 }

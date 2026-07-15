@@ -32,6 +32,15 @@ export const manualSendReport = async (req, res) => {
       userId,
       triggerType: "manual",
     });
+
+    if (reportData.skipped) {
+      return res.status(200).json({
+        success: true,
+        skipped: true,
+        message: reportData.reason,
+        reportData,
+      });
+    }
     const delivery = reportData.delivery;
 
     if (!delivery?.confirmed) {
@@ -56,7 +65,7 @@ export const manualSendReport = async (req, res) => {
           ? 503
           : failure?.category === "validation"
             ? 400
-            : failure?.category === "timeout"
+            : ["timeout", "uncertain"].includes(failure?.category)
               ? 504
               : 502
       ).json({

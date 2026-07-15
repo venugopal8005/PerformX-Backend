@@ -9,7 +9,7 @@ const deliveryRecipientSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "sent", "failed"],
+      enum: ["pending", "sent", "failed", "uncertain"],
       default: "pending",
     },
     error: {
@@ -30,8 +30,74 @@ const deliveryErrorSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ["configuration", "validation", "network", "timeout", "response", "delivery"],
+      enum: [
+        "configuration",
+        "validation",
+        "network",
+        "timeout",
+        "response",
+        "delivery",
+        "uncertain",
+      ],
       default: "delivery",
+    },
+    message: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    http_status: {
+      type: Number,
+      min: 100,
+      max: 599,
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
+const dispatchStateSchema = new mongoose.Schema(
+  {
+    idempotency_key: {
+      type: String,
+      trim: true,
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ["pending", "dispatching", "sent", "failed", "uncertain", "not_required"],
+      default: "pending",
+      required: true,
+    },
+    attempt_count: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    attempt_id: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    claimed_at: {
+      type: Date,
+      default: null,
+    },
+    claim_expires_at: {
+      type: Date,
+      default: null,
+    },
+    last_attempt_at: {
+      type: Date,
+      default: null,
+    },
+    sent_at: {
+      type: Date,
+      default: null,
+    },
+    last_error: {
+      type: deliveryErrorSchema,
+      default: null,
     },
   },
   { _id: false }
@@ -82,6 +148,15 @@ const reportEmailArtifactSchema = new mongoose.Schema(
       ref: "User",
       default: null,
     },
+    cancelled_at: {
+      type: Date,
+      default: null,
+    },
+    cancelled_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
     recipients: {
       type: [deliveryRecipientSchema],
       default: [],
@@ -89,6 +164,10 @@ const reportEmailArtifactSchema = new mongoose.Schema(
     delivery_error: {
       type: deliveryErrorSchema,
       default: null,
+    },
+    dispatch: {
+      type: dispatchStateSchema,
+      default: undefined,
     },
     safety: {
       passed: {
@@ -157,6 +236,149 @@ const internalReportArtifactSchema = new mongoose.Schema(
       type: deliveryErrorSchema,
       default: null,
     },
+    dispatch: {
+      type: dispatchStateSchema,
+      default: undefined,
+    },
+  },
+  { _id: false }
+);
+
+const notificationArtifactSchema = new mongoose.Schema(
+  {
+    kind: {
+      type: String,
+      enum: ["approval", "held"],
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ["generated", "sent", "failed"],
+      default: "generated",
+    },
+    subject: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    html: {
+      type: String,
+      default: null,
+    },
+    text: {
+      type: String,
+      default: null,
+    },
+    sent_at: {
+      type: Date,
+      default: null,
+    },
+    recipients: {
+      type: [deliveryRecipientSchema],
+      default: [],
+    },
+    delivery_error: {
+      type: deliveryErrorSchema,
+      default: null,
+    },
+    dispatch: {
+      type: dispatchStateSchema,
+      default: undefined,
+    },
+  },
+  { _id: false }
+);
+
+const executionFailureSchema = new mongoose.Schema(
+  {
+    stage: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    code: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    message: {
+      type: String,
+      trim: true,
+      default: null,
+    },
+    failed_at: {
+      type: Date,
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
+const monitoredCampaignSchema = new mongoose.Schema(
+  {
+    campaign_id: {
+      type: String,
+      trim: true,
+      required: true,
+    },
+    campaign_name: {
+      type: String,
+      trim: true,
+      required: true,
+    },
+  },
+  { _id: false }
+);
+
+const reportConfigurationSnapshotSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ["daily", "weekly", "monthly", null],
+      default: null,
+    },
+    schedule: {
+      timezone: { type: String, default: null },
+      time_of_day: { type: String, default: null },
+      day_of_week: { type: Number, default: null },
+      day_of_month: { type: Number, default: null },
+    },
+    client_delivery_mode: {
+      type: String,
+      enum: ["generate_only", "auto_send", "approval_required", null],
+      default: null,
+    },
+    generate_client_report: { type: Boolean, default: null },
+    generate_internal_report: { type: Boolean, default: null },
+  },
+  { _id: false }
+);
+
+const reportRunContextSnapshotSchema = new mongoose.Schema(
+  {
+    version: { type: Number, enum: [1], required: true },
+    captured_at: { type: Date, required: true },
+    source: {
+      type: String,
+      enum: ["execution", "backfill_current_reference"],
+      required: true,
+    },
+    workspace: {
+      name: { type: String, trim: true, default: null },
+    },
+    client: {
+      name: { type: String, trim: true, default: null },
+    },
+    report: {
+      name: { type: String, trim: true, default: null },
+      configuration: {
+        type: reportConfigurationSnapshotSchema,
+        default: null,
+      },
+    },
+    actor: {
+      name: { type: String, trim: true, default: null },
+    },
   },
   { _id: false }
 );
@@ -181,6 +403,10 @@ const reportRunSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    context_snapshot: {
+      type: reportRunContextSnapshotSchema,
+      default: undefined,
+    },
     meta_ad_account_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "MetaAdAccount",
@@ -197,6 +423,15 @@ const reportRunSchema = new mongoose.Schema(
       trim: true,
       default: null,
     },
+    meta_binding_revision_snapshot: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+    meta_binding_performance_validated_at: {
+      type: Date,
+      default: null,
+    },
     triggered_by: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -209,9 +444,66 @@ const reportRunSchema = new mongoose.Schema(
       default: "api",
       index: true,
     },
+    execution_key: {
+      type: String,
+      trim: true,
+    },
+    scheduled_for: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    execution_stage: {
+      type: String,
+      enum: ["claimed", "generating", "artifacts_ready", "delivering", "completed", "failed"],
+      default: "completed",
+      required: true,
+      index: true,
+    },
+    execution_attempt_count: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
+    started_at: {
+      type: Date,
+      default: Date.now,
+    },
+    artifacts_ready_at: {
+      type: Date,
+      default: null,
+    },
+    events_persisted_at: {
+      type: Date,
+      default: null,
+    },
+    events_persistence_status: {
+      type: String,
+      enum: ["persisted", "skipped_unvalidated_legacy_evidence"],
+      default: null,
+    },
+    events_persistence_reason: {
+      type: String,
+      enum: ["meta_performance_evidence_not_validated"],
+      default: null,
+    },
+    completed_at: {
+      type: Date,
+      default: null,
+    },
+    next_retry_at: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+    failure: {
+      type: executionFailureSchema,
+      default: null,
+    },
     status: {
       type: String,
-      enum: ["ok", "insufficient_data", "failed"],
+      enum: ["running", "ok", "insufficient_data", "failed"],
+      default: "running",
       required: true,
       index: true,
     },
@@ -257,7 +549,11 @@ const reportRunSchema = new mongoose.Schema(
     },
     narrative: {
       type: mongoose.Schema.Types.Mixed,
-      required: true,
+      default: null,
+    },
+    monitored_campaigns: {
+      type: [monitoredCampaignSchema],
+      default: [],
     },
     signal_ids: {
       type: [
@@ -285,6 +581,10 @@ const reportRunSchema = new mongoose.Schema(
       type: reportEmailArtifactSchema,
       default: null,
     },
+    notification: {
+      type: notificationArtifactSchema,
+      default: null,
+    },
     engine_output: {
       type: mongoose.Schema.Types.Mixed,
       default: null,
@@ -305,6 +605,7 @@ reportRunSchema.index({ agency_id: 1, report_id: 1, ran_at: -1 });
 reportRunSchema.index({ agency_id: 1, meta_ad_account_id: 1, ran_at: -1 });
 reportRunSchema.index({ agency_id: 1, client_id: 1, ran_at: -1 });
 reportRunSchema.index({ report_id: 1, status: 1, ran_at: -1 });
+reportRunSchema.index({ execution_key: 1 }, { unique: true, sparse: true });
 
 export const ReportRun =
   mongoose.models.ReportRun || mongoose.model("ReportRun", reportRunSchema);

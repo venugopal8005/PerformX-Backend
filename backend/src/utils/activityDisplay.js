@@ -93,6 +93,13 @@ const ACTIVITY_DISPLAY = {
     fallbackTitle: "Client deleted",
     fallbackDescription: "Client workspace and related monitoring data were deleted.",
   },
+  client_archived: {
+    label: "Client archived",
+    icon: "Archive",
+    tone: "paused",
+    fallbackTitle: "Client archived",
+    fallbackDescription: "Client was removed from operational use while history was retained.",
+  },
   meta_connected: {
     label: "Meta connected",
     icon: "PlugZap",
@@ -120,6 +127,13 @@ const ACTIVITY_DISPLAY = {
     tone: "paused",
     fallbackTitle: "Monitor paused",
     fallbackDescription: "Automated monitoring was paused.",
+  },
+  report_archived: {
+    label: "Monitor archived",
+    icon: "Archive",
+    tone: "paused",
+    fallbackTitle: "Monitor archived",
+    fallbackDescription: "Monitor was removed from operational use while history was retained.",
   },
   report_executed: {
     label: "Analyzed",

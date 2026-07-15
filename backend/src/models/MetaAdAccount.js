@@ -74,6 +74,28 @@ const metaAdAccountSchema = new mongoose.Schema(
       default: true,
       required: true,
     },
+    binding_revision: {
+      type: Number,
+      cast: false,
+      min: 0,
+      default: 0,
+      required: true,
+      validate: {
+        validator: Number.isSafeInteger,
+        message: "binding_revision must be a non-negative integer.",
+      },
+    },
+    binding_fence_counter: {
+      type: Number,
+      cast: false,
+      min: 0,
+      default: 0,
+      select: false,
+      validate: {
+        validator: Number.isSafeInteger,
+        message: "binding_fence_counter must be a non-negative integer.",
+      },
+    },
   },
   {
     timestamps: true,

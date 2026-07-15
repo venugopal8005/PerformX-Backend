@@ -13,6 +13,7 @@ import { protect } from "../../../auth-module/index.js";
 import { manualSendReport } from "../controllers/manualSend.controller.js";
 import { runAllReports } from "../controllers/runAll.controller.js";
 import { requireWorkspaceMember } from "../middlewares/workspaceAccess.js";
+import { requireReportExecutionIntegrity } from "../middlewares/reportExecutionIntegrity.js";
 import crypto from "crypto";
 
 
@@ -39,9 +40,26 @@ const protectWorkspaceOrScheduler = (req, res, next) => {
 
 reportRouter.post("/create", protect, requireWorkspaceMember, createReport);
 reportRouter.post("/start-report", protect, requireWorkspaceMember, startReport);
-reportRouter.get("/run-report", protect, requireWorkspaceMember, runReport);
-reportRouter.post("/manual-send", protect, requireWorkspaceMember, manualSendReport);
-reportRouter.get("/run-all", protectWorkspaceOrScheduler, runAllReports);
+reportRouter.get(
+  "/run-report",
+  protect,
+  requireWorkspaceMember,
+  requireReportExecutionIntegrity,
+  runReport
+);
+reportRouter.post(
+  "/manual-send",
+  protect,
+  requireWorkspaceMember,
+  requireReportExecutionIntegrity,
+  manualSendReport
+);
+reportRouter.get(
+  "/run-all",
+  protectWorkspaceOrScheduler,
+  requireReportExecutionIntegrity,
+  runAllReports
+);
 reportRouter.get("/get-reports", protect, requireWorkspaceMember, getReports);
 reportRouter.get("/:reportId/history", protect, requireWorkspaceMember, getReportHistory);
 reportRouter.get("/:reportId", protect, requireWorkspaceMember, getReport);

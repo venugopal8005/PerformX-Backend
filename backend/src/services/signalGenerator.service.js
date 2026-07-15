@@ -1,4 +1,7 @@
 import { Signal } from "../models/Signal.js";
+import { ReportRun } from "../models/ReportRun.js";
+import { buildSignalContextSnapshotFromReportRun } from "./historicalContextSnapshot.service.js";
+import { normalizeMetaBindingRevision } from "./metaAccountBinding.service.js";
 
 const NARRATOR_SIGNAL_TYPE_MAP = {
   creative_fatigue: "creative_fatigue",
@@ -18,6 +21,19 @@ const mapSeverity = (level) => {
   if (level === "critical" || level === "high") return "critical";
   if (level === "medium") return "moderate";
   return "stable";
+};
+
+export const hasValidatedMetaPerformanceEvidence = (reportRun) => {
+  if (!reportRun?.meta_binding_performance_validated_at) return false;
+  const validatedAt = new Date(reportRun.meta_binding_performance_validated_at);
+  if (Number.isNaN(validatedAt.getTime())) return false;
+
+  try {
+    normalizeMetaBindingRevision(reportRun.meta_binding_revision_snapshot);
+    return true;
+  } catch {
+    return false;
+  }
 };
 
 const signalTypeFromNarrative = (narrative) => {
@@ -113,10 +129,51 @@ export const buildSignalsFromNarrative = ({ report, narrative, comparison }) => 
   ];
 };
 
-export const saveSignalsFromNarrative = async ({ report, narrative, comparison }) => {
+export const saveSignalsFromNarrative = async ({
+  report,
+  reportRun = null,
+  narrative,
+  comparison,
+  reportRunId = null,
+  SignalModel = Signal,
+  ReportRunModel = ReportRun,
+}) => {
   const signals = buildSignalsFromNarrative({ report, narrative, comparison });
 
   if (!signals.length) return [];
 
-  return Signal.insertMany(signals);
+  if (reportRunId) {
+    const historicalReportRun =
+      reportRun || (await ReportRunModel.findById(reportRunId));
+    const contextSnapshot = historicalReportRun
+      ? buildSignalContextSnapshotFromReportRun({
+          reportRun: historicalReportRun,
+          campaignId: signals[0].campaign_id,
+          capturedAt:
+            historicalReportRun.context_snapshot?.captured_at ||
+            historicalReportRun.started_at ||
+            signals[0].detected_at,
+        })
+      : null;
+    const document = {
+      ...signals[0],
+      report_run_id: reportRunId,
+      ...(contextSnapshot ? { context_snapshot: contextSnapshot } : {}),
+    };
+
+    try {
+      const signal = await SignalModel.findOneAndUpdate(
+        { report_run_id: reportRunId },
+        { $setOnInsert: document },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      return signal ? [signal] : [];
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+      const existing = await SignalModel.findOne({ report_run_id: reportRunId });
+      return existing ? [existing] : [];
+    }
+  }
+
+  return SignalModel.insertMany(signals);
 };

@@ -84,6 +84,29 @@ const safetySettingsSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const executionLockSchema = new mongoose.Schema(
+  {
+    token: {
+      type: String,
+      required: true,
+    },
+    source: {
+      type: String,
+      enum: ["manual", "scheduled", "api"],
+      required: true,
+    },
+    acquired_at: {
+      type: Date,
+      required: true,
+    },
+    expires_at: {
+      type: Date,
+      required: true,
+    },
+  },
+  { _id: false }
+);
+
 const reportSchema = new mongoose.Schema(
   {
     agency_id: {
@@ -233,6 +256,26 @@ const reportSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    execution_lock: {
+      type: executionLockSchema,
+      default: undefined,
+      select: false,
+    },
+    is_archived: {
+      type: Boolean,
+      default: false,
+      required: true,
+      index: true,
+    },
+    archived_at: {
+      type: Date,
+      default: null,
+    },
+    archived_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
     schedule: {
       type: scheduleSchema,
       required: true,
@@ -249,6 +292,7 @@ reportSchema.index({ agency_id: 1, meta_ad_account_id: 1 });
 reportSchema.index({ agency_id: 1, status: 1 });
 reportSchema.index({ agency_id: 1, severity: 1 });
 reportSchema.index({ agency_id: 1, next_run_at: 1 });
+reportSchema.index({ agency_id: 1, is_archived: 1, createdAt: -1 });
 reportSchema.index({ client_id: 1, status: 1 });
 
 reportSchema.pre("validate", function validateSchedule() {

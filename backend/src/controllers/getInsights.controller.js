@@ -2,7 +2,7 @@ import { fetchMetaInsights } from "../services/metaInsights.service.js";
 import {
   getAssignedMetaAccountForClient,
   metaErrorResponse,
-  resolveMetaContextForAccount,
+  resolveValidatedMetaContextForReport,
 } from "../services/metaContext.service.js";
 
 export const getInsights = async (req, res) => {
@@ -21,9 +21,10 @@ export const getInsights = async (req, res) => {
       agencyId,
       clientId,
     });
-    const context = await resolveMetaContextForAccount({
-      agencyId,
-      metaAdAccountId: metaAdAccount._id,
+    const context = await resolveValidatedMetaContextForReport({
+      agency_id: agencyId,
+      client_id: clientId,
+      meta_ad_account_id: metaAdAccount._id,
     });
     const end = req.query.end || new Date().toISOString().slice(0, 10);
     const start =

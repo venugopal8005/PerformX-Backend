@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
 
 import {
-  processReportDelivery,
+  buildDeliveryIdempotencyKey,
+  prepareReportDelivery,
   sendReportEmail,
   summarizeReportDelivery,
 } from "../src/services/reportDelivery.service.js";
@@ -85,16 +86,19 @@ test("manual delivery posts the internal report payload to REPORT_EMAIL_WEBHOOK_
     text: "Internal",
     reportType: "internal_report",
     metadata: { agencyId: "agency-1", reportId: "report-1" },
+    idempotencyKey: "run-1:internal:batch",
   });
 
   const payload = JSON.parse(request.options.body);
   assert.equal(request.url, process.env.REPORT_EMAIL_WEBHOOK_URL);
   assert.equal(request.options.method, "POST");
+  assert.equal(request.options.headers["x-idempotency-key"], "run-1:internal:batch");
   assert.deepEqual(payload.recipients, ["team@example.com"]);
   assert.equal(payload.emailSubject, "Internal report");
   assert.equal(payload.emailHtml, "<html><body>Internal</body></html>");
   assert.equal(payload.senderName, "Narrative");
   assert.equal(payload.reportType, "internal_report");
+  assert.equal(payload.idempotency_key, "run-1:internal:batch");
   assert.equal(result.recipients[0].status, "sent");
 });
 
@@ -119,21 +123,69 @@ test("eligible client report uses the same webhook with client_report payload", 
   assert.equal(payload.emailHtml, "<html><body>Client</body></html>");
 });
 
-test("webhook non-2xx response is a delivery failure", async () => {
-  global.fetch = async () => okResponse(500);
+for (const status of [400, 401, 403, 404, 409, 422, 429, 500, 502, 503]) {
+  test(`webhook HTTP ${status} is ambiguous after request initiation`, async () => {
+    global.fetch = async () => okResponse(status);
 
-  await assert.rejects(
-    sendReportEmail({
+    await assert.rejects(
+      sendReportEmail({
+        recipients: ["team@example.com"],
+        subject: "Report",
+        html: "<p>Report</p>",
+        reportType: "internal_report",
+      }),
+      (error) =>
+        error.code === "EMAIL_WEBHOOK_RESPONSE_UNCERTAIN" &&
+        error.category === "response" &&
+        error.responseStatus === status &&
+        error.ambiguous === true
+    );
+  });
+}
+
+for (const status of [200, 202, 204]) {
+  test(`webhook HTTP ${status} is confirmed as accepted`, async () => {
+    global.fetch = async () => okResponse(status);
+    const result = await sendReportEmail({
       recipients: ["team@example.com"],
       subject: "Report",
       html: "<p>Report</p>",
       reportType: "internal_report",
-    }),
-    (error) =>
-      error.code === "EMAIL_WEBHOOK_RESPONSE_FAILED" &&
-      error.category === "response"
-  );
-});
+    });
+    assert.equal(result.recipients[0].status, "sent");
+  });
+}
+
+for (const fixture of [
+  {
+    name: "empty recipients",
+    input: { recipients: [], subject: "Report", html: "<p>Report</p>" },
+    code: "EMAIL_RECIPIENTS_MISSING",
+  },
+  {
+    name: "missing subject",
+    input: { recipients: ["team@example.com"], subject: "", html: "<p>Report</p>" },
+    code: "EMAIL_SUBJECT_MISSING",
+  },
+  {
+    name: "missing HTML body",
+    input: { recipients: ["team@example.com"], subject: "Report", html: "" },
+    code: "EMAIL_BODY_MISSING",
+  },
+]) {
+  test(`${fixture.name} fails before fetch`, async () => {
+    let fetchCalled = false;
+    global.fetch = async () => {
+      fetchCalled = true;
+      return okResponse(200);
+    };
+    await assert.rejects(
+      sendReportEmail({ ...fixture.input, reportType: "internal_report" }),
+      (error) => error.code === fixture.code && error.ambiguous === false
+    );
+    assert.equal(fetchCalled, false);
+  });
+}
 
 test("missing REPORT_EMAIL_WEBHOOK_URL fails without using an obsolete fallback", async () => {
   delete process.env.REPORT_EMAIL_WEBHOOK_URL;
@@ -171,9 +223,27 @@ test("network failure is not reported as delivery success", async () => {
     }),
     (error) =>
       error.code === "EMAIL_WEBHOOK_NETWORK_FAILED" &&
-      error.category === "network"
+      error.category === "network" &&
+      error.ambiguous === true
   );
 });
+
+for (const message of ["getaddrinfo ENOTFOUND", "ECONNRESET"]) {
+  test(`${message} remains uncertain after fetch starts`, async () => {
+    global.fetch = async () => {
+      throw new TypeError(message);
+    };
+    await assert.rejects(
+      sendReportEmail({
+        recipients: ["team@example.com"],
+        subject: "Report",
+        html: "<p>Report</p>",
+        reportType: "internal_report",
+      }),
+      (error) => error.code === "EMAIL_WEBHOOK_NETWORK_FAILED" && error.ambiguous
+    );
+  });
+}
 
 test("webhook timeout is not reported as delivery success", async () => {
   process.env.REPORT_EMAIL_WEBHOOK_TIMEOUT_MS = "10";
@@ -193,18 +263,16 @@ test("webhook timeout is not reported as delivery success", async () => {
       html: "<p>Report</p>",
       reportType: "internal_report",
     }),
-    (error) => error.code === "EMAIL_WEBHOOK_TIMEOUT" && error.category === "timeout"
+    (error) =>
+      error.code === "EMAIL_WEBHOOK_TIMEOUT" &&
+      error.category === "timeout" &&
+      error.ambiguous === true
   );
 });
 
-test("generate_only sends the internal report and does not send a client email", async () => {
-  const reportTypes = [];
-  global.fetch = async (_url, options) => {
-    reportTypes.push(JSON.parse(options.body).reportType);
-    return okResponse(200);
-  };
-
-  const result = await processReportDelivery({
+test("generate_only prepares internal delivery and marks client dispatch not required", () => {
+  const result = prepareReportDelivery({
+    reportRunId: "run-1",
     report: reportFixture("generate_only"),
     narrative: narrativeFixture,
     comparison: comparisonFixture,
@@ -213,20 +281,15 @@ test("generate_only sends the internal report and does not send a client email",
     reportUrl: "https://app.example.com/reports/report-1",
   });
 
-  assert.deepEqual(reportTypes, ["internal_report"]);
-  assert.equal(result.internalReport.status, "sent");
+  assert.equal(result.internalReport.status, "generated");
+  assert.equal(result.internalReport.dispatch.status, "pending");
   assert.equal(result.clientReport.status, "generated");
-  assert.equal(result.delivery.confirmed, true);
+  assert.equal(result.clientReport.dispatch.status, "not_required");
 });
 
-test("approval_required holds client delivery and sends only internal email types", async () => {
-  const reportTypes = [];
-  global.fetch = async (_url, options) => {
-    reportTypes.push(JSON.parse(options.body).reportType);
-    return okResponse(200);
-  };
-
-  const result = await processReportDelivery({
+test("approval_required prepares a pending client dispatch and durable notification", () => {
+  const result = prepareReportDelivery({
+    reportRunId: "run-1",
     report: reportFixture("approval_required"),
     narrative: narrativeFixture,
     comparison: comparisonFixture,
@@ -235,19 +298,15 @@ test("approval_required holds client delivery and sends only internal email type
     reportUrl: "https://app.example.com/reports/report-1",
   });
 
-  assert.deepEqual(reportTypes, ["internal_report", "internal_notification"]);
   assert.equal(result.clientReport.status, "awaiting_approval");
-  assert.equal(result.delivery.confirmed, true);
+  assert.equal(result.clientReport.dispatch.status, "pending");
+  assert.equal(result.notification.kind, "approval");
+  assert.equal(result.notification.dispatch.status, "pending");
 });
 
-test("auto_send posts an eligible client report after the internal report", async () => {
-  const reportTypes = [];
-  global.fetch = async (_url, options) => {
-    reportTypes.push(JSON.parse(options.body).reportType);
-    return okResponse(200);
-  };
-
-  const result = await processReportDelivery({
+test("auto_send prepares a pending client dispatch only when safety passes", () => {
+  const result = prepareReportDelivery({
+    reportRunId: "run-1",
     report: reportFixture("auto_send"),
     narrative: narrativeFixture,
     comparison: comparisonFixture,
@@ -256,15 +315,29 @@ test("auto_send posts an eligible client report after the internal report", asyn
     reportUrl: "https://app.example.com/reports/report-1",
   });
 
-  assert.deepEqual(reportTypes, ["internal_report", "client_report"]);
-  assert.equal(result.clientReport.status, "sent");
-  assert.equal(result.delivery.confirmed, true);
+  assert.equal(result.clientReport.safety.passed, true);
+  assert.equal(result.clientReport.status, "generated");
+  assert.equal(result.clientReport.dispatch.status, "pending");
+});
+
+test("delivery idempotency key is deterministic for an artifact batch", () => {
+  assert.equal(
+    buildDeliveryIdempotencyKey({
+      reportRunId: "run-1",
+      audience: "client",
+    }),
+    "run-1:client:batch"
+  );
 });
 
 test("delivery summary rejects a failed expected email", () => {
   const delivery = summarizeReportDelivery({
     internalReport: {
       status: "failed",
+      dispatch: {
+        status: "failed",
+        last_error: { code: "HTTP_400", category: "response", message: "HTTP 400" },
+      },
       recipients: [{ email: "team@example.com", status: "failed", error: "HTTP 500" }],
     },
     clientReport: { status: "generated", recipients: [] },

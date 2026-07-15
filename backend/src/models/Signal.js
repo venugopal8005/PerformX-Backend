@@ -1,5 +1,42 @@
 import mongoose from "mongoose";
 
+const signalCampaignSnapshotSchema = new mongoose.Schema(
+  {
+    campaign_id: { type: String, required: true, trim: true },
+    campaign_name: { type: String, trim: true, default: null },
+  },
+  { _id: false }
+);
+
+const signalContextSnapshotSchema = new mongoose.Schema(
+  {
+    version: { type: Number, enum: [1], required: true },
+    captured_at: { type: Date, required: true },
+    source: {
+      type: String,
+      enum: ["execution", "backfill_current_reference"],
+      required: true,
+    },
+    workspace: { name: { type: String, trim: true, default: null } },
+    client: { name: { type: String, trim: true, default: null } },
+    report: { name: { type: String, trim: true, default: null } },
+    meta_account: {
+      meta_ad_account_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "MetaAdAccount",
+        default: null,
+      },
+      external_account_id: { type: String, trim: true, default: null },
+      name: { type: String, trim: true, default: null },
+    },
+    campaigns: {
+      type: [signalCampaignSnapshotSchema],
+      default: [],
+    },
+  },
+  { _id: false }
+);
+
 const signalSchema = new mongoose.Schema(
   {
     agency_id: {
@@ -19,6 +56,14 @@ const signalSchema = new mongoose.Schema(
       ref: "Report",
       default: null,
       index: true,
+    },
+    report_run_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ReportRun",
+    },
+    context_snapshot: {
+      type: signalContextSnapshotSchema,
+      default: undefined,
     },
     campaign_id: {
       type: String,
@@ -92,6 +137,7 @@ signalSchema.index({ agency_id: 1, client_id: 1, detected_at: -1 });
 signalSchema.index({ agency_id: 1, report_id: 1, detected_at: -1 });
 signalSchema.index({ agency_id: 1, severity: 1, detected_at: -1 });
 signalSchema.index({ client_id: 1, severity: 1, detected_at: -1 });
+signalSchema.index({ report_run_id: 1 }, { unique: true, sparse: true });
 
 export const Signal =
   mongoose.models.Signal || mongoose.model("Signal", signalSchema);

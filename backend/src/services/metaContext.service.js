@@ -1,5 +1,11 @@
 import { Client, MetaAdAccount, MetaConnection } from "../models/index.js";
 import { getMetaAccessToken } from "../utils/metaToken.js";
+import { isArchivedDocument } from "../utils/archiveScope.js";
+import {
+  buildPermittedWorkspaceConnectionPredicate,
+  readPersistedMetaBindingRevision,
+  resolveValidatedMetaAccountBinding,
+} from "./metaAccountBinding.service.js";
 
 const GRAPH_VERSION = process.env.META_GRAPH_VERSION || "v25.0";
 const MAX_GRAPH_PAGES = 100;
@@ -18,6 +24,7 @@ export const metaErrorResponse = (error, fallbackMessage = "Meta request failed"
   success: false,
   code: error?.code || "META_REQUEST_FAILED",
   message: error?.message || fallbackMessage,
+  ...(error?.reason ? { reason: error.reason } : {}),
   ...(error?.invalidCampaignIds
     ? { invalidCampaignIds: error.invalidCampaignIds }
     : {}),
@@ -63,22 +70,23 @@ export const findWorkspaceMetaConnection = async (
   agencyId,
   { includeToken = false, requireActive = true } = {}
 ) => {
-  const activeFilter = requireActive ? { is_active: true } : {};
   const selection = includeToken ? "+access_token +access_token_encrypted" : "";
   let connection = await MetaConnection.findOne({
-    agency_id: agencyId,
+    ...buildPermittedWorkspaceConnectionPredicate({
+      agencyId,
+      requireActive,
+    }),
     connection_scope: "workspace",
-    client_id: null,
-    ...activeFilter,
   }).select(selection);
 
   if (connection) return connection;
 
   const legacyWorkspaceCandidates = await MetaConnection.find({
-    agency_id: agencyId,
-    client_id: null,
-    connection_scope: { $in: [null, "workspace"] },
-    ...activeFilter,
+    ...buildPermittedWorkspaceConnectionPredicate({
+      agencyId,
+      requireActive,
+    }),
+    connection_scope: null,
   })
     .select(selection)
     .sort({ updatedAt: -1 })
@@ -147,6 +155,13 @@ export const getAssignedMetaAccountForClient = async ({
   if (!client) {
     throw new MetaContextError("CLIENT_NOT_FOUND", "Client not found.", 404);
   }
+  if (isArchivedDocument(client)) {
+    throw new MetaContextError(
+      "CLIENT_ARCHIVED",
+      "Archived clients cannot receive Meta account assignments or create reports.",
+      409
+    );
+  }
 
   const accounts = await MetaAdAccount.find({
     agency_id: agencyId,
@@ -211,11 +226,24 @@ export const resolveMetaContextForAccount = async ({
     );
   }
 
+  if (!metaAdAccount.client_id) {
+    throw new MetaContextError(
+      "META_ACCOUNT_NOT_ASSIGNED",
+      "This Meta ad account must be assigned to a client before campaigns can be refreshed.",
+      400
+    );
+  }
+
+  await readPersistedMetaBindingRevision({
+    accountId: metaAdAccount._id,
+    agencyId,
+  });
+
   const connection = await MetaConnection.findOne({
-    _id: metaAdAccount.meta_connection_id,
-    agency_id: agencyId,
-    client_id: null,
-    is_active: true,
+    ...buildPermittedWorkspaceConnectionPredicate({
+      agencyId,
+      connectionId: metaAdAccount.meta_connection_id,
+    }),
   }).select("+access_token +access_token_encrypted");
 
   if (!connection) {
@@ -259,7 +287,18 @@ export const resolveMetaContextForAccount = async ({
   };
 };
 
-export const resolveMetaContextForReport = async (report) => {
+export const resolveValidatedMetaContextForReport = async (
+  report,
+  { expectedClientId, expectedBindingRevision } = {}
+) => {
+  if (isArchivedDocument(report)) {
+    throw new MetaContextError(
+      "REPORT_ARCHIVED",
+      "Archived reports cannot be used for live Meta operations.",
+      409
+    );
+  }
+
   if (!report?.meta_ad_account_id) {
     throw new MetaContextError(
       "META_REPORT_ACCOUNT_UNRESOLVED",
@@ -268,11 +307,15 @@ export const resolveMetaContextForReport = async (report) => {
     );
   }
 
-  return resolveMetaContextForAccount({
+  return resolveValidatedMetaAccountBinding({
     agencyId: report.agency_id,
-    metaAdAccountId: report.meta_ad_account_id,
+    accountId: report.meta_ad_account_id,
+    clientId: expectedClientId || report.client_id,
+    expectedBindingRevision,
   });
 };
+
+export const resolveMetaContextForReport = resolveValidatedMetaContextForReport;
 
 export const fetchCampaignsForMetaAccount = async ({ accessToken, externalAdAccountId }) => {
   const url = new URL(

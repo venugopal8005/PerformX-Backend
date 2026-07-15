@@ -16,12 +16,16 @@ import workspacesRouter from "./routes/workspaces.routes.js";
 import reportRunsRouter from "./routes/reportRuns.routes.js";
 import { startN8NScheduler } from "./jobs/n8nScheduler.js";
 import {
+  Activity,
+  ReportRun,
+  Signal,
   WorkspaceInvite,
   WorkspaceMember,
   WorkspaceSettings,
 } from "./models/index.js";
+import { initializeExecutionIntegrity } from "./services/executionIntegrityIndexes.service.js";
+import { logAction, logError } from "./utils/controllerLogger.js";
 
-startN8NScheduler();
 const app = express();
 
 //middleware
@@ -51,6 +55,32 @@ try {
 } catch (error) {
   console.error("Database connection failed:", error);
   process.exit(1);
+}
+
+const executionIntegrity = await initializeExecutionIntegrity({
+  models: { ReportRun, Signal, Activity },
+  startScheduler: startN8NScheduler,
+});
+
+if (executionIntegrity.ready) {
+  logAction(
+    "ExecutionIntegrity",
+    "STARTUP_VERIFIED",
+    {
+      indexes: executionIntegrity.results.map((result) => ({
+        modelName: result.modelName,
+        field: result.field,
+        status: result.status,
+      })),
+    },
+    "green"
+  );
+} else {
+  logError(
+    "ExecutionIntegrity",
+    "STARTUP_VERIFICATION_FAILED",
+    executionIntegrity.error
+  );
 }
 
 // auth module

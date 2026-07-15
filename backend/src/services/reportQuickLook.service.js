@@ -1,5 +1,5 @@
 import { aggregateMetaMetrics, fetchMetaInsights } from "./metaInsights.service.js";
-import { resolveMetaContextForAccount } from "./metaContext.service.js";
+import { resolveValidatedMetaContextForReport } from "./metaContext.service.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_LOOKBACK_DAYS = Number(process.env.META_QUICK_LOOK_LOOKBACK_DAYS) || 365;
@@ -705,9 +705,11 @@ const fetchRows = async ({ accessToken, externalAdAccountId, report, dateRange }
 
 const buildMetaQuickLook = async ({ reportRun, report, rangeType, query }) => {
   const metaAdAccountId = reportRun.meta_ad_account_id || report.meta_ad_account_id;
-  const context = await resolveMetaContextForAccount({
-    agencyId: report.agency_id,
-    metaAdAccountId,
+  const expectedClientId = reportRun.client_id || report.client_id;
+  const context = await resolveValidatedMetaContextForReport({
+    agency_id: reportRun.agency_id || report.agency_id,
+    client_id: expectedClientId,
+    meta_ad_account_id: metaAdAccountId,
   });
   const { accessToken, externalAdAccountId } = context;
 

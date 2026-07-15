@@ -2,6 +2,16 @@ import { Report } from "../models/Report.js";
 import { ReportRun } from "../models/ReportRun.js";
 import { Signal } from "../models/Signal.js";
 import { recordActivity } from "../services/activityRecorder.service.js";
+import { archiveReportLifecycle } from "../services/archiveLifecycle.service.js";
+import {
+  acquireRequiredClientLifecycleLease,
+  fenceClientLifecycleLeaseInTransaction,
+  releaseClientLifecycleLease,
+  startClientLifecycleLeaseHeartbeat,
+} from "../services/clientLifecycle.service.js";
+import { runRequiredTransaction } from "../services/requiredTransaction.service.js";
+import { assertReportClientReparentAllowed } from "../services/reportLineage.service.js";
+import { fenceMetaAccountBindingInTransaction } from "../services/metaAccountBinding.service.js";
 import { logAction, logError } from "../utils/controllerLogger.js";
 import { getNextRunAt, normalizeReportSchedule } from "../utils/reportSchedule.js";
 import {
@@ -12,10 +22,11 @@ import {
 import {
   getAssignedMetaAccountForClient,
   metaErrorResponse,
-  resolveMetaContextForAccount,
   resolveMetaContextForReport,
+  resolveValidatedMetaContextForReport,
   validateCampaignsForMetaAccount,
 } from "../services/metaContext.service.js";
+import { withOperationalReportScope } from "../utils/archiveScope.js";
 
 const SCOPE = "Reports";
 const DEFAULT_REPORT_NAME = "Meta Ads Monitor";
@@ -93,9 +104,10 @@ const resolveReportAccountForClient = async ({
     throw error;
   }
 
-  const context = await resolveMetaContextForAccount({
-    agencyId,
-    metaAdAccountId: metaAdAccount._id,
+  const context = await resolveValidatedMetaContextForReport({
+    agency_id: agencyId,
+    client_id: clientId,
+    meta_ad_account_id: metaAdAccount._id,
   });
   await validateCampaignsForMetaAccount({
     accessToken: context.accessToken,
@@ -104,6 +116,45 @@ const resolveReportAccountForClient = async ({
   });
 
   return { client, metaAdAccount, context };
+};
+
+const requireFinalMetaAccountBinding = async ({
+  agencyId,
+  clientId,
+  metaAdAccountId,
+  session,
+}) => {
+  const { account } = await fenceMetaAccountBindingInTransaction({
+    accountId: metaAdAccountId,
+    agencyId,
+    clientId,
+    session,
+  });
+  return account;
+};
+
+const reportUpdateState = (report) => {
+  const source = report.toObject({ depopulate: true });
+  return {
+    client_id: source.client_id,
+    meta_ad_account_id: source.meta_ad_account_id,
+    meta_account_external_id_snapshot: source.meta_account_external_id_snapshot,
+    meta_account_name_snapshot: source.meta_account_name_snapshot,
+    monitored_campaigns: source.monitored_campaigns,
+    name: source.name,
+    recipients: source.recipients,
+    internal_recipients: source.internal_recipients,
+    client_recipients: source.client_recipients,
+    generate_client_report: source.generate_client_report,
+    generate_internal_report: source.generate_internal_report,
+    client_delivery_mode: source.client_delivery_mode,
+    safety_settings: source.safety_settings,
+    severity: source.severity,
+    type: source.type,
+    schedule: source.schedule,
+    status: source.status,
+    next_run_at: source.next_run_at,
+  };
 };
 
 export const createReport = async (req, res) => {
@@ -160,66 +211,113 @@ export const createReport = async (req, res) => {
         invalidCampaignIds: [],
       });
     }
-    const { metaAdAccount } = await resolveReportAccountForClient({
+    const lifecycleLease = await acquireRequiredClientLifecycleLease({
       agencyId,
       clientId,
-      requestedMetaAdAccountId:
-        formData.meta_ad_account_id || formData.metaAdAccountId,
-      campaigns: monitoredCampaigns,
+      operation: "report_create",
     });
-    const report = await Report.create({
-      agency_id: agencyId,
-      client_id: clientId,
-      meta_ad_account_id: metaAdAccount._id,
-      meta_account_external_id_snapshot: metaAdAccount.ad_account_id,
-      meta_account_name_snapshot: metaAdAccount.name,
-      created_by: userId,
-      name,
-      type: scheduleConfig.type,
-      status: normalizeStatus(formData.status),
-      severity: formData.severity || "low",
-      recipients,
-      internal_recipients: internalRecipients,
-      client_recipients: clientRecipients,
-      generate_client_report: readBool(
-        formData.generate_client_report ?? formData.generateClientReport,
-        true
-      ),
-      generate_internal_report: readBool(
-        formData.generate_internal_report ?? formData.generateInternalReport,
-        true
-      ),
-      client_delivery_mode: normalizeClientDeliveryMode(
-        formData.client_delivery_mode || formData.clientDeliveryMode
-      ),
-      safety_settings: normalizeSafetySettings(
-        formData.safety_settings || formData.safetySettings
-      ),
-      monitored_campaigns: monitoredCampaigns,
-      schedule: scheduleConfig.schedule,
-      last_summary: null,
-      last_signal_at: null,
-      last_run_at: null,
-      next_run_at: null,
+    const lifecycleHeartbeat = startClientLifecycleLeaseHeartbeat({
+      agencyId,
+      clientId,
+      token: lifecycleLease.token,
     });
+    let report;
 
-    await recordActivity({
-      agency_id: agencyId,
-      client_id: clientId,
-      report_id: report._id,
-      user_id: userId,
-      type: "report_created",
-      title: `${report.name} created`,
-      description: "Operational monitor created.",
-      severity: "stable",
-      metadata: {
-        report_type: report.type,
+    try {
+      const { metaAdAccount } = await resolveReportAccountForClient({
+        agencyId,
+        clientId,
+        requestedMetaAdAccountId:
+          formData.meta_ad_account_id || formData.metaAdAccountId,
+        campaigns: monitoredCampaigns,
+      });
+      const reportPayload = {
+        agency_id: agencyId,
+        client_id: clientId,
+        meta_ad_account_id: metaAdAccount._id,
+        meta_account_external_id_snapshot: metaAdAccount.ad_account_id,
+        meta_account_name_snapshot: metaAdAccount.name,
+        created_by: userId,
+        name,
+        type: scheduleConfig.type,
+        status: normalizeStatus(formData.status),
+        severity: formData.severity || "low",
         recipients,
         internal_recipients: internalRecipients,
         client_recipients: clientRecipients,
-        client_delivery_mode: report.client_delivery_mode,
-      },
-    });
+        generate_client_report: readBool(
+          formData.generate_client_report ?? formData.generateClientReport,
+          true
+        ),
+        generate_internal_report: readBool(
+          formData.generate_internal_report ?? formData.generateInternalReport,
+          true
+        ),
+        client_delivery_mode: normalizeClientDeliveryMode(
+          formData.client_delivery_mode || formData.clientDeliveryMode
+        ),
+        safety_settings: normalizeSafetySettings(
+          formData.safety_settings || formData.safetySettings
+        ),
+        monitored_campaigns: monitoredCampaigns,
+        schedule: scheduleConfig.schedule,
+        last_summary: null,
+        last_signal_at: null,
+        last_run_at: null,
+        next_run_at: null,
+      };
+
+      lifecycleHeartbeat.assertOwned();
+      report = await runRequiredTransaction({
+        unavailableCode: "lifecycle_transaction_unavailable",
+        unavailableMessage:
+          "Report creation requires a transaction-capable database deployment.",
+        work: async (session) => {
+          await fenceClientLifecycleLeaseInTransaction({
+            agencyId,
+            clientId,
+            token: lifecycleLease.token,
+            session,
+          });
+          const finalMetaAdAccount = await requireFinalMetaAccountBinding({
+            agencyId,
+            clientId,
+            metaAdAccountId: metaAdAccount._id,
+            session,
+          });
+          reportPayload.meta_account_external_id_snapshot =
+            finalMetaAdAccount.ad_account_id;
+          reportPayload.meta_account_name_snapshot = finalMetaAdAccount.name;
+          const [createdReport] = await Report.create([reportPayload], { session });
+          return createdReport;
+        },
+      });
+
+      await recordActivity({
+        agency_id: agencyId,
+        client_id: clientId,
+        report_id: report._id,
+        user_id: userId,
+        type: "report_created",
+        title: `${report.name} created`,
+        description: "Operational monitor created.",
+        severity: "stable",
+        metadata: {
+          report_type: report.type,
+          recipients,
+          internal_recipients: internalRecipients,
+          client_recipients: clientRecipients,
+          client_delivery_mode: report.client_delivery_mode,
+        },
+      });
+    } finally {
+      await lifecycleHeartbeat.stop();
+      await releaseClientLifecycleLease({
+        agencyId,
+        clientId,
+        token: lifecycleLease.token,
+      }).catch(() => null);
+    }
 
     logAction(SCOPE, "CREATE_REPORT_SUCCESS", {
       agencyId,
@@ -269,12 +367,26 @@ export const startReport = async (req, res) => {
       reportId,
     }, "blue");
 
-    const report = await Report.findOne({
-      _id: reportId,
-      agency_id: agencyId,
-    });
+    let report = await Report.findOne(
+      withOperationalReportScope({
+        _id: reportId,
+        agency_id: agencyId,
+      })
+    );
 
     if (!report) {
+      const archivedReport = await Report.exists({
+        _id: reportId,
+        agency_id: agencyId,
+        is_archived: true,
+      });
+      if (archivedReport) {
+        return res.status(409).json({
+          success: false,
+          code: "REPORT_ARCHIVED",
+          message: "Archived reports cannot be started.",
+        });
+      }
       return res.status(404).json({
         success: false,
         message: "Report not found",
@@ -335,7 +447,7 @@ export const getReports = async (req, res) => {
       ...(clientId ? { client_id: clientId } : {}),
     };
 
-    const reports = await Report.find(query)
+    const reports = await Report.find(withOperationalReportScope(query))
       .populate("meta_ad_account_id", "name ad_account_id is_accessible is_active")
       .sort({ createdAt: -1 });
     const latestRuns = await ReportRun.find({
@@ -374,12 +486,26 @@ export const getReport = async (req, res) => {
     const agencyId = requireAgency(req, res);
     if (!agencyId) return;
 
-    const report = await Report.findOne({
-      _id: req.params.reportId,
-      agency_id: agencyId,
-    }).populate("meta_ad_account_id", "name ad_account_id is_accessible is_active");
+    let report = await Report.findOne(
+      withOperationalReportScope({
+        _id: req.params.reportId,
+        agency_id: agencyId,
+      })
+    ).populate("meta_ad_account_id", "name ad_account_id is_accessible is_active");
 
     if (!report) {
+      const archivedReport = await Report.exists({
+        _id: req.params.reportId,
+        agency_id: agencyId,
+        is_archived: true,
+      });
+      if (archivedReport) {
+        return res.status(409).json({
+          success: false,
+          code: "REPORT_ARCHIVED",
+          message: "Archived reports are not available in the active workspace.",
+        });
+      }
       return res.status(404).json({
         success: false,
         message: "Report not found",
@@ -404,14 +530,28 @@ export const getReportHistory = async (req, res) => {
     if (!agencyId) return;
 
     const limit = Math.min(Number(req.query.limit) || 25, 100);
-    const report = await Report.findOne({
-      _id: req.params.reportId,
-      agency_id: agencyId,
-    })
+    const report = await Report.findOne(
+      withOperationalReportScope({
+        _id: req.params.reportId,
+        agency_id: agencyId,
+      })
+    )
       .populate("client_id", "name status")
       .populate("meta_ad_account_id", "name ad_account_id is_accessible is_active");
 
     if (!report) {
+      const archivedReport = await Report.exists({
+        _id: req.params.reportId,
+        agency_id: agencyId,
+        is_archived: true,
+      });
+      if (archivedReport) {
+        return res.status(409).json({
+          success: false,
+          code: "REPORT_ARCHIVED",
+          message: "Archived report history is not available in this phase.",
+        });
+      }
       return res.status(404).json({
         success: false,
         message: "Report not found",
@@ -454,6 +594,11 @@ export const getReportHistory = async (req, res) => {
 };
 
 export const updateReport = async (req, res) => {
+  let destinationLease = null;
+  let destinationHeartbeat = null;
+  let destinationAgencyId = null;
+  let destinationClientId = null;
+
   try {
     const agencyId = requireAgency(req, res);
     if (!agencyId) return;
@@ -483,12 +628,26 @@ export const updateReport = async (req, res) => {
       ).length,
     }, "blue");
 
-    const report = await Report.findOne({
-      _id: reportId,
-      agency_id: agencyId,
-    });
+    let report = await Report.findOne(
+      withOperationalReportScope({
+        _id: reportId,
+        agency_id: agencyId,
+      })
+    );
 
     if (!report) {
+      const archivedReport = await Report.exists({
+        _id: reportId,
+        agency_id: agencyId,
+        is_archived: true,
+      });
+      if (archivedReport) {
+        return res.status(409).json({
+          success: false,
+          code: "REPORT_ARCHIVED",
+          message: "Archived reports cannot be updated.",
+        });
+      }
       return res.status(404).json({
         success: false,
         message: "Report not found",
@@ -501,6 +660,18 @@ export const updateReport = async (req, res) => {
       requestedClientId && String(requestedClientId) !== String(report.client_id);
 
     if (clientChanged) {
+      destinationAgencyId = agencyId;
+      destinationClientId = requestedClientId;
+      destinationLease = await acquireRequiredClientLifecycleLease({
+        agencyId,
+        clientId: requestedClientId,
+        operation: "report_reparent",
+      });
+      destinationHeartbeat = startClientLifecycleLeaseHeartbeat({
+        agencyId,
+        clientId: requestedClientId,
+        token: destinationLease.token,
+      });
       const replacementCampaigns = normalizeCampaigns(updates.monitored_campaigns || []);
       const { metaAdAccount } = await resolveReportAccountForClient({
         agencyId,
@@ -619,7 +790,70 @@ export const updateReport = async (req, res) => {
       report.next_run_at = null;
     }
 
-    await report.save();
+    if (!destinationLease && !wasActive && report.status === "active") {
+      await resolveMetaContextForReport(report);
+    }
+
+    if (destinationLease) {
+      destinationHeartbeat.assertOwned();
+      const desiredState = reportUpdateState(report);
+      const committedReportId = await runRequiredTransaction({
+        unavailableCode: "lifecycle_transaction_unavailable",
+        unavailableMessage:
+          "Report reparenting requires a transaction-capable database deployment.",
+        work: async (session) => {
+          await fenceClientLifecycleLeaseInTransaction({
+            agencyId,
+            clientId: destinationClientId,
+            token: destinationLease.token,
+            session,
+          });
+          const transactionalReport = await Report.findOne(
+            withOperationalReportScope({
+              _id: reportId,
+              agency_id: agencyId,
+            })
+          )
+            .select("+execution_lock")
+            .session(session);
+          if (!transactionalReport) {
+            const error = new Error("Report is no longer available for update.");
+            error.code = "REPORT_ARCHIVED";
+            error.status = 409;
+            throw error;
+          }
+          const transactionChangesClient =
+            String(transactionalReport.client_id) !==
+            String(desiredState.client_id);
+          if (transactionChangesClient) {
+            await assertReportClientReparentAllowed({
+              agencyId,
+              report: transactionalReport,
+              session,
+            });
+          }
+          const finalMetaAdAccount = await requireFinalMetaAccountBinding({
+            agencyId,
+            clientId: destinationClientId,
+            metaAdAccountId: desiredState.meta_ad_account_id,
+            session,
+          });
+          transactionalReport.set({
+            ...desiredState,
+            meta_account_external_id_snapshot: finalMetaAdAccount.ad_account_id,
+            meta_account_name_snapshot: finalMetaAdAccount.name,
+          });
+          await transactionalReport.save({ session });
+          return transactionalReport._id;
+        },
+      });
+      report = await Report.findOne({
+        _id: committedReportId,
+        agency_id: agencyId,
+      });
+    } else {
+      await report.save();
+    }
 
     if (wasActive && report.status === "paused") {
       await recordActivity({
@@ -660,6 +894,15 @@ export const updateReport = async (req, res) => {
     return res
       .status(err.status || 500)
       .json(metaErrorResponse(err, "Failed to update report"));
+  } finally {
+    if (destinationHeartbeat) await destinationHeartbeat.stop();
+    if (destinationLease) {
+      await releaseClientLifecycleLease({
+        agencyId: destinationAgencyId,
+        clientId: destinationClientId,
+        token: destinationLease.token,
+      }).catch(() => null);
+    }
   }
 };
 
@@ -677,29 +920,51 @@ export const deleteReport = async (req, res) => {
       });
     }
 
-    const report = await Report.findOneAndDelete({
-      _id: reportId,
-      agency_id: agencyId,
+    const result = await archiveReportLifecycle({
+      agencyId,
+      reportId,
+      userId: req.user.id || req.user.userId || req.user._id,
     });
 
-    if (!report) {
+    if (result.outcome === "not_found") {
       return res.status(404).json({
         success: false,
         message: "Report not found",
       });
     }
 
+    if (result.outcome === "execution_in_progress") {
+      return res.status(409).json({
+        success: false,
+        code: "report_execution_in_progress",
+        message: "This report is currently running. Try archiving it again after it finishes.",
+        reportIds: result.reportIds,
+      });
+    }
+
+    if (result.outcome === "dispatch_in_progress") {
+      return res.status(409).json({
+        success: false,
+        code: "client_report_dispatch_in_progress",
+        message: "This report is currently being delivered. Try again after delivery finishes.",
+        reportIds: result.reportIds,
+      });
+    }
+
     return res.status(200).json({
       success: true,
-      message: "Report deleted",
-      reportId: report._id,
+      message: "Report archived",
+      archived: true,
+      alreadyArchived: result.outcome === "already_archived",
+      reportId: result.report._id,
     });
   } catch (err) {
     logError(SCOPE, "DELETE_REPORT_FAILED", err);
 
-    return res.status(500).json({
+    return res.status(err.status || 500).json({
       success: false,
-      message: err.message || "Failed to delete report",
+      code: err.code,
+      message: err.message || "Failed to archive report",
     });
   }
 };
