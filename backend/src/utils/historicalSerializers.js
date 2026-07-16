@@ -1029,6 +1029,10 @@ export const serializeHistoricalSignal = (signal, fallback = {}) => {
       metaAccount.id || metaAccount.externalId || metaAccount.name ? "snapshot" : "unknown",
   };
   const identity = { client, report, metaAccount };
+  const issueId = idString(value.issue_id);
+  const issueMatchingStatus =
+    text(value.issue_matching_status, 64) ||
+    (issueId ? "matched" : "legacy_ungrouped");
 
   return {
     _id: value._id,
@@ -1050,6 +1054,15 @@ export const serializeHistoricalSignal = (signal, fallback = {}) => {
     report,
     metaAccount,
     metadata: safeSignalMetadata(value.metadata),
+    issue: {
+      id: issueId,
+      occurrenceNumber: number(value.issue_occurrence_number),
+      fingerprintSnapshot: text(value.issue_fingerprint_snapshot, 64),
+      matchingStatus: issueMatchingStatus,
+      matchingReason: text(value.issue_matching_reason, 128),
+      matchingVersion: number(value.matching_version),
+      matchedAt: safeHistoricalDate(value.matched_at),
+    },
     identitySources: sources,
     identityCompleteness: identityCompleteness({ identity, sources }),
   };

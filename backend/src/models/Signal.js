@@ -1,5 +1,12 @@
 import mongoose from "mongoose";
 
+import {
+  ISSUE_FINGERPRINT_VERSION,
+  ISSUE_MATCHING_VERSION,
+  SIGNAL_ISSUE_MATCHING_STATUSES,
+} from "../domain/phase2Issue.domain.js";
+import { issueScopeSchema } from "./schemas/issueScope.schema.js";
+
 const signalCampaignSnapshotSchema = new mongoose.Schema(
   {
     campaign_id: { type: String, required: true, trim: true },
@@ -64,6 +71,63 @@ const signalSchema = new mongoose.Schema(
     context_snapshot: {
       type: signalContextSnapshotSchema,
       default: undefined,
+    },
+    scope: {
+      type: issueScopeSchema,
+      default: undefined,
+      immutable: true,
+    },
+    fingerprint: {
+      type: String,
+      default: null,
+      immutable: true,
+      match: /^[a-f0-9]{64}$/,
+    },
+    fingerprint_version: {
+      type: Number,
+      enum: [ISSUE_FINGERPRINT_VERSION, null],
+      default: null,
+      immutable: true,
+    },
+    issue_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Issue",
+      default: null,
+      immutable: true,
+    },
+    issue_occurrence_number: {
+      type: Number,
+      min: 1,
+      default: null,
+      immutable: true,
+    },
+    issue_fingerprint_snapshot: {
+      type: String,
+      default: null,
+      immutable: true,
+      match: /^[a-f0-9]{64}$/,
+    },
+    matched_at: {
+      type: Date,
+      default: null,
+      immutable: true,
+    },
+    matching_version: {
+      type: Number,
+      enum: [ISSUE_MATCHING_VERSION, null],
+      default: null,
+      immutable: true,
+    },
+    issue_matching_status: {
+      type: String,
+      enum: [...SIGNAL_ISSUE_MATCHING_STATUSES, null],
+      default: null,
+    },
+    issue_matching_reason: {
+      type: String,
+      trim: true,
+      default: null,
+      maxlength: 128,
     },
     campaign_id: {
       type: String,
@@ -140,6 +204,21 @@ signalSchema.index({ agency_id: 1, report_id: 1, detected_at: -1, _id: -1 });
 signalSchema.index({ agency_id: 1, severity: 1, detected_at: -1 });
 signalSchema.index({ client_id: 1, severity: 1, detected_at: -1 });
 signalSchema.index({ report_run_id: 1 }, { unique: true, sparse: true });
+signalSchema.index(
+  { agency_id: 1, issue_id: 1, detected_at: -1, _id: -1 },
+  { name: "phase2_signals_issue_cursor" }
+);
+signalSchema.index(
+  { issue_id: 1, issue_occurrence_number: 1 },
+  {
+    name: "phase2_signals_issue_occurrence_unique",
+    unique: true,
+    partialFilterExpression: {
+      issue_id: { $type: "objectId" },
+      issue_occurrence_number: { $type: "number" },
+    },
+  }
+);
 signalSchema.index(
   { agency_id: 1, detected_at: -1, _id: -1 },
   { name: "phase1e_signals_workspace_cursor", unique: false, sparse: false }

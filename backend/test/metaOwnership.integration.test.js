@@ -8,6 +8,7 @@ import {
   Activity,
   Agency,
   Client,
+  Issue,
   MetaAdAccount,
   MetaConnection,
   Report,
@@ -30,6 +31,7 @@ import {
 } from "../src/controllers/settings.controller.js";
 import { archiveClientLifecycle } from "../src/services/archiveLifecycle.service.js";
 import { markExecutionIntegrityReady } from "../src/services/executionIntegrityIndexes.service.js";
+import { initializePhase2IssueIntegrity } from "../src/services/phase2IssueIndexes.service.js";
 import {
   acquireReportExecutionLease,
   findOrCreateReportRun,
@@ -166,6 +168,7 @@ before(async () => {
     Activity.init(),
     Agency.init(),
     Client.init(),
+    Issue.init(),
     MetaAdAccount.init(),
     MetaConnection.init(),
     Report.init(),
@@ -174,6 +177,10 @@ before(async () => {
     User.init(),
   ]);
   markExecutionIntegrityReady();
+  const phase2Integrity = await initializePhase2IssueIntegrity({
+    collections: { issues: Issue.collection, signals: Signal.collection },
+  });
+  assert.equal(phase2Integrity.ready, true);
 }, { timeout: 120_000 });
 
 beforeEach(async () => {
@@ -181,6 +188,7 @@ beforeEach(async () => {
     Activity.deleteMany({}),
     Agency.deleteMany({}),
     Client.deleteMany({}),
+    Issue.deleteMany({}),
     MetaAdAccount.deleteMany({}),
     MetaConnection.deleteMany({}),
     Report.deleteMany({}),

@@ -14,9 +14,11 @@ import settingsRouter from "./routes/settings.routes.js";
 import invitesRouter from "./routes/invites.routes.js";
 import workspacesRouter from "./routes/workspaces.routes.js";
 import reportRunsRouter from "./routes/reportRuns.routes.js";
+import issuesRouter from "./routes/issues.routes.js";
 import { startN8NScheduler } from "./jobs/n8nScheduler.js";
 import {
   Activity,
+  Issue,
   ReportRun,
   Signal,
   WorkspaceInvite,
@@ -24,6 +26,7 @@ import {
   WorkspaceSettings,
 } from "./models/index.js";
 import { initializeExecutionIntegrity } from "./services/executionIntegrityIndexes.service.js";
+import { initializePhase2IssueIntegrity } from "./services/phase2IssueIndexes.service.js";
 import { connectMongooseWithIndexManagementDisabled } from "./services/mongooseConnection.service.js";
 import { logAction, logError } from "./utils/controllerLogger.js";
 
@@ -48,6 +51,7 @@ app.use("/api/settings", settingsRouter);
 app.use("/api/invites", invitesRouter);
 app.use("/api/workspaces", workspacesRouter);
 app.use("/api/report-runs", reportRunsRouter);
+app.use("/api/issues", issuesRouter);
 
 // db
 try {
@@ -63,8 +67,19 @@ try {
 
 const executionIntegrity = await initializeExecutionIntegrity({
   models: { ReportRun, Signal, Activity },
-  startScheduler: startN8NScheduler,
 });
+
+let phase2IssueIntegrity;
+try {
+  phase2IssueIntegrity = await initializePhase2IssueIntegrity({
+    collections: {
+      issues: Issue.collection,
+      signals: Signal.collection,
+    },
+  });
+} catch (error) {
+  phase2IssueIntegrity = { ready: false, error };
+}
 
 if (executionIntegrity.ready) {
   logAction(
@@ -85,6 +100,31 @@ if (executionIntegrity.ready) {
     "STARTUP_VERIFICATION_FAILED",
     executionIntegrity.error
   );
+}
+
+if (phase2IssueIntegrity.ready) {
+  logAction(
+    "Phase2IssueIntegrity",
+    "STARTUP_VERIFIED",
+    {
+      indexes: phase2IssueIntegrity.results.map((result) => ({
+        collection: result.collection,
+        name: result.expectedName,
+        status: result.classification,
+      })),
+    },
+    "green"
+  );
+} else {
+  logError(
+    "Phase2IssueIntegrity",
+    "STARTUP_VERIFICATION_FAILED",
+    phase2IssueIntegrity.error || new Error("Critical Phase 2 Issue indexes are absent.")
+  );
+}
+
+if (executionIntegrity.ready && phase2IssueIntegrity.ready) {
+  await startN8NScheduler();
 }
 
 // auth module

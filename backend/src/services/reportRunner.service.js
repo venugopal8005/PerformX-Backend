@@ -27,6 +27,7 @@ import {
   startReportExecutionLeaseHeartbeat,
 } from "./reportExecution.service.js";
 import { assertExecutionIntegrityReady } from "./executionIntegrityIndexes.service.js";
+import { processReportRunIssues } from "./issueMatching.service.js";
 import { buildReportRunContextSnapshot } from "./historicalContextSnapshot.service.js";
 import {
   isArchivedDocument,
@@ -576,6 +577,19 @@ const buildRunResult = ({
   };
 };
 
+export const processReportRunIssuesBeforeDelivery = async ({
+  reportRunId,
+  allowFailedRetry = false,
+  metadata,
+  beforeDelivery = async () => {},
+  issueProcessor = processReportRunIssues,
+  deliveryProcessor = processPersistedReportDelivery,
+} = {}) => {
+  await issueProcessor({ reportRunId });
+  await beforeDelivery();
+  return deliveryProcessor({ reportRunId, allowFailedRetry, metadata });
+};
+
 export const runReport = async (reportId, options = {}) => {
   assertExecutionIntegrityReady();
   const now = options.now || new Date();
@@ -916,20 +930,8 @@ export const runReport = async (reportId, options = {}) => {
     activities = eventResult.activities;
     reportRun = await ReportRun.findById(reportRun._id);
 
-    const renewed = await renewReportExecutionLease({
-      reportId: report._id,
-      agencyId: report.agency_id,
-      token: lease.token,
-    });
-    if (!renewed) {
-      const error = new Error("Report execution lease was lost before delivery.");
-      error.code = "REPORT_EXECUTION_LEASE_LOST";
-      error.status = 409;
-      throw error;
-    }
-    heartbeat.assertOwned();
-    failureStage = "delivery";
-    const deliveryResult = await processPersistedReportDelivery({
+    failureStage = "issues";
+    const deliveryResult = await processReportRunIssuesBeforeDelivery({
       reportRunId: reportRun._id,
       allowFailedRetry: hasArtifacts,
       metadata: {
@@ -938,6 +940,22 @@ export const runReport = async (reportId, options = {}) => {
         reportId: report._id,
         reportName: report.name,
         clientName,
+      },
+      beforeDelivery: async () => {
+        reportRun = await ReportRun.findById(reportRun._id);
+        const renewed = await renewReportExecutionLease({
+          reportId: report._id,
+          agencyId: report.agency_id,
+          token: lease.token,
+        });
+        if (!renewed) {
+          const error = new Error("Report execution lease was lost before delivery.");
+          error.code = "REPORT_EXECUTION_LEASE_LOST";
+          error.status = 409;
+          throw error;
+        }
+        heartbeat.assertOwned();
+        failureStage = "delivery";
       },
     });
     reportRun = deliveryResult.reportRun;

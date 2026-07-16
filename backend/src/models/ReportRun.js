@@ -1,5 +1,11 @@
 import mongoose from "mongoose";
 
+import {
+  ISSUE_MATCHING_VERSION,
+  ISSUE_PROCESSING_RESULT_CLASSIFICATIONS,
+  ISSUE_PROCESSING_STATUSES,
+} from "../domain/phase2Issue.domain.js";
+
 const deliveryRecipientSchema = new mongoose.Schema(
   {
     email: {
@@ -314,6 +320,37 @@ const executionFailureSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const issueProcessingSchema = new mongoose.Schema(
+  {
+    processing_key: { type: String, trim: true, required: true, immutable: true },
+    version: {
+      type: Number,
+      enum: [ISSUE_MATCHING_VERSION],
+      required: true,
+      immutable: true,
+    },
+    status: { type: String, enum: ISSUE_PROCESSING_STATUSES, required: true },
+    claim_token: { type: String, default: null, select: false, maxlength: 64 },
+    claimed_at: { type: Date, default: null },
+    claim_expires_at: { type: Date, default: null },
+    completed_at: { type: Date, default: null },
+    attempts: { type: Number, min: 0, default: 0, required: true },
+    failure_code: { type: String, trim: true, default: null, maxlength: 128 },
+    failure_message: { type: String, trim: true, default: null, maxlength: 500 },
+    result_classification: {
+      type: String,
+      enum: [...ISSUE_PROCESSING_RESULT_CLASSIFICATIONS, null],
+      default: null,
+    },
+    issue_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Issue",
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
 const monitoredCampaignSchema = new mongoose.Schema(
   {
     campaign_id: {
@@ -486,6 +523,10 @@ const reportRunSchema = new mongoose.Schema(
       type: String,
       enum: ["meta_performance_evidence_not_validated"],
       default: null,
+    },
+    issue_processing: {
+      type: issueProcessingSchema,
+      default: undefined,
     },
     completed_at: {
       type: Date,

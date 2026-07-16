@@ -629,7 +629,7 @@ export const getReportHistory = async (req, res) => {
           .lean(),
         Signal.find(signalQuery)
           .select(
-            "_id agency_id client_id report_id report_run_id context_snapshot campaign_id type severity title description recommendation metadata detected_at createdAt"
+            "_id agency_id client_id report_id report_run_id context_snapshot campaign_id type severity title description recommendation metadata detected_at createdAt issue_id issue_occurrence_number issue_fingerprint_snapshot matched_at matching_version issue_matching_status issue_matching_reason"
           )
           .sort({ detected_at: -1, _id: -1 })
           .limit(limit + 1)
