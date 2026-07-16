@@ -17,6 +17,26 @@ const invalidRevisionError = () =>
     "meta_binding_revision_invalid"
   );
 
+const invalidBindingIdentifierError = () =>
+  createBindingError(
+    "META_REPORT_ACCOUNT_UNRESOLVED",
+    "The Meta ad account identifier is invalid.",
+    400,
+    "meta_account_unresolved"
+  );
+
+const castMetaAccountIdentifier = ({ MetaAdAccountModel, path, value }) => {
+  if (value == null) return value;
+
+  try {
+    const schemaPath = MetaAdAccountModel?.schema?.path?.(path);
+    if (!schemaPath || typeof schemaPath.cast !== "function") return value;
+    return schemaPath.cast(value);
+  } catch {
+    throw invalidBindingIdentifierError();
+  }
+};
+
 const normalizeExplicitRevision = (value) => {
   if (Number.isSafeInteger(value) && value >= 0) return value;
   throw invalidRevisionError();
@@ -60,10 +80,20 @@ export const readPersistedMetaBindingRevision = async ({
   session = null,
   MetaAdAccountModel = MetaAdAccount,
 }) => {
+  const persistedAccountId = castMetaAccountIdentifier({
+    MetaAdAccountModel,
+    path: "_id",
+    value: accountId,
+  });
+  const persistedAgencyId = castMetaAccountIdentifier({
+    MetaAdAccountModel,
+    path: "agency_id",
+    value: agencyId,
+  });
   const rawAccount = await MetaAdAccountModel.collection.findOne(
     {
-      _id: accountId,
-      ...(agencyId ? { agency_id: agencyId } : {}),
+      _id: persistedAccountId,
+      ...(agencyId != null ? { agency_id: persistedAgencyId } : {}),
     },
     {
       projection: { binding_revision: 1 },
@@ -329,9 +359,19 @@ export const resolveValidatedMetaAccountBinding = async ({
       "meta_account_unresolved"
     );
   }
+  const queryAccountId = castMetaAccountIdentifier({
+    MetaAdAccountModel,
+    path: "_id",
+    value: accountId,
+  });
+  const queryAgencyId = castMetaAccountIdentifier({
+    MetaAdAccountModel,
+    path: "agency_id",
+    value: agencyId,
+  });
   const account = await MetaAdAccountModel.findOne({
-    _id: accountId,
-    agency_id: agencyId,
+    _id: queryAccountId,
+    agency_id: queryAgencyId,
   });
   if (!account) {
     throw createBindingError(

@@ -2,8 +2,8 @@ import {
   fetchCampaignsForMetaAccount,
   getAssignedMetaAccountForClient,
   metaErrorResponse,
-  resolveValidatedMetaContextForReport,
 } from "../services/metaContext.service.js";
+import { resolveValidatedMetaAccountBinding } from "../services/metaAccountBinding.service.js";
 
 export const getCampaigns = async (req, res) => {
   try {
@@ -21,10 +21,10 @@ export const getCampaigns = async (req, res) => {
       agencyId,
       clientId,
     });
-    const context = await resolveValidatedMetaContextForReport({
-      agency_id: agencyId,
-      client_id: clientId,
-      meta_ad_account_id: metaAdAccount._id,
+    const context = await resolveValidatedMetaAccountBinding({
+      agencyId,
+      accountId: metaAdAccount._id,
+      clientId,
     });
     const campaigns = await fetchCampaignsForMetaAccount({
       accessToken: context.accessToken,

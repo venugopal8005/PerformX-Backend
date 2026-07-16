@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { after, before, beforeEach, test } from "node:test";
 import mongoose from "mongoose";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
@@ -19,6 +20,7 @@ import {
   startReport,
   updateReport,
 } from "../src/controllers/reports.controller.js";
+import { getCampaigns } from "../src/controllers/getCampaigns.controller.js";
 import {
   assignMetaAdAccount,
   refreshMetaAdAccountCampaigns,
@@ -44,6 +46,7 @@ import {
 import {
   fenceMetaAccountBindingInTransaction,
   readPersistedMetaBindingRevision,
+  resolveValidatedMetaAccountBinding,
 } from "../src/services/metaAccountBinding.service.js";
 
 let replicaSet;
@@ -191,6 +194,423 @@ after(async () => {
   await mongoose.disconnect();
   await replicaSet?.stop();
 }, { timeout: 30_000 });
+
+const requestCampaigns = async ({
+  scenario,
+  agencyId = String(scenario.agency._id),
+  clientId = String(scenario.clientA._id),
+}) => {
+  const res = response();
+  await getCampaigns(
+    {
+      user: { agencyId },
+      query: { client_id: clientId },
+    },
+    res
+  );
+  return res;
+};
+
+test("validated Meta binding resolves string IDs against persisted ObjectIds", async () => {
+  const scenario = await createScenario({ suffix: "binding-string-ids" });
+  const context = await resolveValidatedMetaAccountBinding({
+    agencyId: String(scenario.agency._id),
+    accountId: String(scenario.account._id),
+    clientId: String(scenario.clientA._id),
+  });
+
+  assert.equal(context.metaAdAccount._id.toString(), scenario.account._id.toString());
+  assert.equal(context.bindingRevision, 0);
+  assert.equal(context.accessToken, "test-token");
+});
+
+test("validated Meta binding continues to resolve native ObjectIds", async () => {
+  const scenario = await createScenario({ suffix: "binding-object-ids" });
+  const context = await resolveValidatedMetaAccountBinding({
+    agencyId: scenario.agency._id,
+    accountId: scenario.account._id,
+    clientId: scenario.clientA._id,
+  });
+
+  assert.equal(context.metaAdAccount._id.toString(), scenario.account._id.toString());
+  assert.equal(context.bindingRevision, 0);
+});
+
+test("raw revision reader preserves schemaless injected model support", async () => {
+  let observedFilter;
+  const result = await readPersistedMetaBindingRevision({
+    agencyId: "injected-agency",
+    accountId: "injected-account",
+    MetaAdAccountModel: {
+      collection: {
+        findOne: async (filter) => {
+          observedFilter = filter;
+          return { binding_revision: 3 };
+        },
+      },
+    },
+  });
+
+  assert.deepEqual(observedFilter, {
+    _id: "injected-account",
+    agency_id: "injected-agency",
+  });
+  assert.equal(result.revision, 3);
+});
+
+test("validated Meta binding rejects a wrong agency string", async () => {
+  const scenario = await createScenario({ suffix: "binding-wrong-agency" });
+
+  await assert.rejects(
+    resolveValidatedMetaAccountBinding({
+      agencyId: String(id()),
+      accountId: String(scenario.account._id),
+      clientId: String(scenario.clientA._id),
+    }),
+    (error) => error.code === "META_REPORT_ACCOUNT_UNRESOLVED" && error.status === 400
+  );
+});
+
+test("validated Meta binding rejects a wrong Client string", async () => {
+  const scenario = await createScenario({ suffix: "binding-wrong-client" });
+
+  await assert.rejects(
+    resolveValidatedMetaAccountBinding({
+      agencyId: String(scenario.agency._id),
+      accountId: String(scenario.account._id),
+      clientId: String(scenario.clientB._id),
+    }),
+    (error) => error.code === "META_REPORT_BINDING_INVALID" && error.status === 409
+  );
+});
+
+test("validated Meta binding translates malformed agency IDs into a controlled error", async () => {
+  const scenario = await createScenario({ suffix: "binding-malformed-agency" });
+
+  await assert.rejects(
+    resolveValidatedMetaAccountBinding({
+      agencyId: "not-an-object-id",
+      accountId: String(scenario.account._id),
+      clientId: String(scenario.clientA._id),
+    }),
+    (error) =>
+      error.name !== "CastError" &&
+      error.code === "META_REPORT_ACCOUNT_UNRESOLVED" &&
+      error.status === 400
+  );
+});
+
+test("validated Meta binding translates malformed account IDs into a controlled error", async () => {
+  const scenario = await createScenario({ suffix: "binding-malformed-account" });
+
+  await assert.rejects(
+    resolveValidatedMetaAccountBinding({
+      agencyId: String(scenario.agency._id),
+      accountId: "not-an-object-id",
+      clientId: String(scenario.clientA._id),
+    }),
+    (error) =>
+      error.name !== "CastError" &&
+      error.code === "META_REPORT_ACCOUNT_UNRESOLVED" &&
+      error.status === 400
+  );
+});
+
+test("validated Meta binding preserves a persisted numeric revision", async () => {
+  const scenario = await createScenario({ suffix: "binding-numeric-revision" });
+  await MetaAdAccount.collection.updateOne(
+    { _id: scenario.account._id },
+    { $set: { binding_revision: 7 } }
+  );
+
+  const context = await resolveValidatedMetaAccountBinding({
+    agencyId: String(scenario.agency._id),
+    accountId: String(scenario.account._id),
+    clientId: String(scenario.clientA._id),
+  });
+  assert.equal(context.bindingRevision, 7);
+});
+
+test("validated Meta binding preserves legacy-zero behavior for a missing revision", async () => {
+  const scenario = await createScenario({ suffix: "binding-missing-revision" });
+  await MetaAdAccount.collection.updateOne(
+    { _id: scenario.account._id },
+    { $unset: { binding_revision: "" } }
+  );
+
+  const context = await resolveValidatedMetaAccountBinding({
+    agencyId: String(scenario.agency._id),
+    accountId: String(scenario.account._id),
+    clientId: String(scenario.clientA._id),
+  });
+  assert.equal(context.bindingRevision, 0);
+});
+
+test("validated Meta binding still rejects a malformed persisted revision", async () => {
+  const scenario = await createScenario({ suffix: "binding-malformed-revision" });
+  await MetaAdAccount.collection.updateOne(
+    { _id: scenario.account._id },
+    { $set: { binding_revision: "abc" } }
+  );
+
+  await assert.rejects(
+    resolveValidatedMetaAccountBinding({
+      agencyId: String(scenario.agency._id),
+      accountId: String(scenario.account._id),
+      clientId: String(scenario.clientA._id),
+    }),
+    (error) => error.code === "META_BINDING_REVISION_INVALID" && error.status === 409
+  );
+});
+
+test("pre-Report campaign resolution reads the exact assigned account and calls Meta once", async () => {
+  const scenario = await createScenario({ suffix: "pre-report-campaigns" });
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return {
+      ok: true,
+      json: async () => ({
+        data: [{ id: "campaign-pre-report", name: "Campaign", status: "ACTIVE" }],
+      }),
+    };
+  };
+
+  try {
+    const res = await requestCampaigns({ scenario });
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.payload.success, true);
+    assert.equal(res.payload.meta_ad_account.id.toString(), scenario.account._id.toString());
+    assert.equal(res.payload.campaigns.length, 1);
+    assert.equal(fetchCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("pre-Report campaign resolution rejects an account assigned to another Client before Meta", async () => {
+  const scenario = await createScenario({ suffix: "pre-report-wrong-client" });
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error("Meta must not be called for another Client's account");
+  };
+
+  try {
+    const res = await requestCampaigns({
+      scenario,
+      clientId: String(scenario.clientB._id),
+    });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.payload.code, "META_ACCOUNT_NOT_ASSIGNED");
+    assert.equal(fetchCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("pre-Report campaign resolution rejects an unassigned account before Meta", async () => {
+  const scenario = await createScenario({ suffix: "pre-report-unassigned" });
+  await MetaAdAccount.updateOne(
+    { _id: scenario.account._id },
+    { $set: { client_id: null, assignment_scope: null } }
+  );
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error("Meta must not be called for an unassigned account");
+  };
+
+  try {
+    const res = await requestCampaigns({ scenario });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.payload.code, "META_ACCOUNT_NOT_ASSIGNED");
+    assert.equal(fetchCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("pre-Report campaign resolution rejects multiple assigned accounts before Meta", async () => {
+  const scenario = await createScenario({ suffix: "pre-report-ambiguous" });
+  await MetaAdAccount.create({
+    agency_id: scenario.agency._id,
+    meta_connection_id: scenario.connection._id,
+    client_id: scenario.clientA._id,
+    assignment_scope: null,
+    ad_account_id: "act_pre_report_ambiguous_second",
+    name: "Second assigned account",
+    is_active: true,
+    is_accessible: true,
+  });
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error("Meta must not be called for an ambiguous assignment");
+  };
+
+  try {
+    const res = await requestCampaigns({ scenario });
+    assert.equal(res.statusCode, 409);
+    assert.equal(res.payload.code, "META_ACCOUNT_ASSIGNMENT_AMBIGUOUS");
+    assert.equal(fetchCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("pre-Report campaign resolution rejects inactive and inaccessible accounts before Meta", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error("Meta must not be called for an unavailable account");
+  };
+
+  try {
+    for (const field of ["is_active", "is_accessible"]) {
+      const scenario = await createScenario({ suffix: `pre-report-${field}` });
+      await MetaAdAccount.updateOne({ _id: scenario.account._id }, { $set: { [field]: false } });
+      const res = await requestCampaigns({ scenario });
+      assert.equal(res.statusCode, 400, field);
+      assert.equal(res.payload.code, "META_ACCOUNT_NOT_ASSIGNED", field);
+    }
+    assert.equal(fetchCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("pre-Report campaign resolution rejects invalid workspace connection authority before Meta", async () => {
+  const scenario = await createScenario({ suffix: "pre-report-connection" });
+  await MetaConnection.collection.updateOne(
+    { _id: scenario.connection._id },
+    { $set: { connection_scope: "legacy_client", client_id: null } }
+  );
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error("Meta must not be called without workspace connection authority");
+  };
+
+  try {
+    const res = await requestCampaigns({ scenario });
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.payload.code, "META_NOT_CONNECTED");
+    assert.equal(fetchCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("pre-Report campaign resolution accepts absent revisions and rejects malformed revisions", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return { ok: true, json: async () => ({ data: [] }) };
+  };
+
+  try {
+    const legacy = await createScenario({ suffix: "pre-report-revision-absent" });
+    await MetaAdAccount.collection.updateOne(
+      { _id: legacy.account._id },
+      { $unset: { binding_revision: "" } }
+    );
+    const legacyResponse = await requestCampaigns({ scenario: legacy });
+    assert.equal(legacyResponse.statusCode, 200);
+
+    const malformed = await createScenario({ suffix: "pre-report-revision-malformed" });
+    await MetaAdAccount.collection.updateOne(
+      { _id: malformed.account._id },
+      { $set: { binding_revision: "abc" } }
+    );
+    const malformedResponse = await requestCampaigns({ scenario: malformed });
+    assert.equal(malformedResponse.statusCode, 409);
+    assert.equal(malformedResponse.payload.code, "META_BINDING_REVISION_INVALID");
+    assert.equal(fetchCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Report creation validates campaigns through the assigned account and Client binding", async () => {
+  const scenario = await createScenario({ suffix: "pre-report-create" });
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    return {
+      ok: true,
+      json: async () => ({
+        data: [{ id: "campaign-create", name: "Campaign", status: "ACTIVE" }],
+      }),
+    };
+  };
+
+  try {
+    const res = response();
+    await createReport(
+      {
+        user: { id: scenario.user._id, agencyId: scenario.agency._id },
+        body: {
+          client_id: scenario.clientA._id,
+          meta_ad_account_id: scenario.account._id,
+          name: "Pre-report binding creation",
+          internal_recipients: ["team@example.com"],
+          monitored_campaigns: [
+            { campaign_id: "campaign-create", campaign_name: "Campaign" },
+          ],
+          type: "daily",
+          schedule: { time_of_day: "09:00", timezone: "UTC" },
+        },
+      },
+      res
+    );
+
+    assert.equal(res.statusCode, 201);
+    assert.equal(res.payload.success, true);
+    assert.equal(fetchCalls, 1);
+    const report = await Report.findOne({ name: "Pre-report binding creation" });
+    assert.ok(report);
+    assert.equal(report.client_id.toString(), scenario.clientA._id.toString());
+    assert.equal(report.meta_ad_account_id.toString(), scenario.account._id.toString());
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Report execution remains wired to the Report-scoped Meta resolver", async () => {
+  const [campaignController, insightsController, reportsController, reportRunner] =
+    await Promise.all([
+      readFile(
+        new URL("../src/controllers/getCampaigns.controller.js", import.meta.url),
+        "utf8"
+      ),
+      readFile(
+        new URL("../src/controllers/getInsights.controller.js", import.meta.url),
+        "utf8"
+      ),
+      readFile(new URL("../src/controllers/reports.controller.js", import.meta.url), "utf8"),
+      readFile(new URL("../src/services/reportRunner.service.js", import.meta.url), "utf8"),
+    ]);
+
+  assert.doesNotMatch(campaignController, /resolveValidatedMetaContextForReport/);
+  assert.doesNotMatch(insightsController, /resolveValidatedMetaContextForReport/);
+  assert.doesNotMatch(
+    reportsController.slice(
+      reportsController.indexOf("const resolveReportAccountForClient"),
+      reportsController.indexOf("const requireFinalMetaAccountBinding")
+    ),
+    /resolveValidatedMetaContextForReport/
+  );
+  assert.match(reportRunner, /resolveValidatedMetaContextForReport\s*\(/);
+});
 
 test("initial ReportRun transaction snapshots a valid Meta binding revision", async () => {
   const scenario = await createScenario({ suffix: "initial" });

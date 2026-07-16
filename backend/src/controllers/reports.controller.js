@@ -15,7 +15,10 @@ import {
 } from "../services/clientLifecycle.service.js";
 import { runRequiredTransaction } from "../services/requiredTransaction.service.js";
 import { assertReportClientReparentAllowed } from "../services/reportLineage.service.js";
-import { fenceMetaAccountBindingInTransaction } from "../services/metaAccountBinding.service.js";
+import {
+  fenceMetaAccountBindingInTransaction,
+  resolveValidatedMetaAccountBinding,
+} from "../services/metaAccountBinding.service.js";
 import { logAction, logError } from "../utils/controllerLogger.js";
 import { getNextRunAt, normalizeReportSchedule } from "../utils/reportSchedule.js";
 import {
@@ -27,7 +30,6 @@ import {
   getAssignedMetaAccountForClient,
   metaErrorResponse,
   resolveMetaContextForReport,
-  resolveValidatedMetaContextForReport,
   validateCampaignsForMetaAccount,
 } from "../services/metaContext.service.js";
 import {
@@ -129,10 +131,10 @@ const resolveReportAccountForClient = async ({
     throw error;
   }
 
-  const context = await resolveValidatedMetaContextForReport({
-    agency_id: agencyId,
-    client_id: clientId,
-    meta_ad_account_id: metaAdAccount._id,
+  const context = await resolveValidatedMetaAccountBinding({
+    agencyId,
+    accountId: metaAdAccount._id,
+    clientId,
   });
   await validateCampaignsForMetaAccount({
     accessToken: context.accessToken,
