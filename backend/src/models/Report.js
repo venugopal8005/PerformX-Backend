@@ -294,6 +294,14 @@ reportSchema.index({ agency_id: 1, severity: 1 });
 reportSchema.index({ agency_id: 1, next_run_at: 1 });
 reportSchema.index({ agency_id: 1, is_archived: 1, createdAt: -1 });
 reportSchema.index({ agency_id: 1, is_archived: 1, archived_at: -1, _id: -1 });
+reportSchema.index(
+  { agency_id: 1, client_id: 1, is_archived: 1, archived_at: -1, _id: -1 },
+  {
+    name: "phase1e_reports_client_archived_cursor",
+    unique: false,
+    sparse: false,
+  }
+);
 reportSchema.index({ client_id: 1, status: 1 });
 
 reportSchema.pre("validate", function validateSchedule() {

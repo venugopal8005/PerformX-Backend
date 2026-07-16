@@ -24,6 +24,7 @@ import {
   WorkspaceSettings,
 } from "./models/index.js";
 import { initializeExecutionIntegrity } from "./services/executionIntegrityIndexes.service.js";
+import { connectMongooseWithIndexManagementDisabled } from "./services/mongooseConnection.service.js";
 import { logAction, logError } from "./utils/controllerLogger.js";
 
 const app = express();
@@ -50,7 +51,10 @@ app.use("/api/report-runs", reportRunsRouter);
 
 // db
 try {
-  await mongoose.connect(process.env.MONGO_URI);
+  await connectMongooseWithIndexManagementDisabled({
+    mongooseInstance: mongoose,
+    uri: process.env.MONGO_URI,
+  });
   console.log("Database connected successfully");
 } catch (error) {
   console.error("Database connection failed:", error);

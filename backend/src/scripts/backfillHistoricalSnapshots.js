@@ -2,6 +2,7 @@ import "dotenv/config";
 import mongoose from "mongoose";
 
 import { runHistoricalSnapshotBackfill } from "../services/historicalSnapshotBackfill.service.js";
+import { connectMongooseWithIndexManagementDisabled } from "../services/mongooseConnection.service.js";
 
 const apply = process.argv.includes("--apply");
 const batchArgument = process.argv.find((argument) => argument.startsWith("--batch-size="));
@@ -15,7 +16,10 @@ const run = async () => {
     throw new Error("MONGO_URI is required for historical snapshot backfill.");
   }
 
-  await mongoose.connect(process.env.MONGO_URI);
+  await connectMongooseWithIndexManagementDisabled({
+    mongooseInstance: mongoose,
+    uri: process.env.MONGO_URI,
+  });
   const result = await runHistoricalSnapshotBackfill({ apply, batchSize });
   console.log(JSON.stringify(result, null, 2));
 };

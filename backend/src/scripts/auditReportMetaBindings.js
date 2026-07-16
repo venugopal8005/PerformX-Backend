@@ -2,12 +2,16 @@ import "dotenv/config";
 import mongoose from "mongoose";
 
 import { auditCurrentReportMetaBindings } from "../services/reportMetaBindingAudit.service.js";
+import { connectMongooseWithIndexManagementDisabled } from "../services/mongooseConnection.service.js";
 
 const run = async () => {
   if (!process.env.MONGO_URI) {
     throw new Error("MONGO_URI is required for the report Meta binding audit.");
   }
-  await mongoose.connect(process.env.MONGO_URI);
+  await connectMongooseWithIndexManagementDisabled({
+    mongooseInstance: mongoose,
+    uri: process.env.MONGO_URI,
+  });
   const result = await auditCurrentReportMetaBindings();
   console.log(JSON.stringify(result, null, 2));
 };

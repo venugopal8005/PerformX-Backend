@@ -8,6 +8,8 @@
     "dev": "node src/server.js",
     "test": "node --test test/*.test.js",
     "verify:execution-integrity": "node src/scripts/verifyExecutionIntegrity.js",
+    "inspect:phase1e-history-indexes": "node src/scripts/applyPhase1EHistoryIndexes.js --inspect",
+    "apply:phase1e-history-indexes": "node src/scripts/applyPhase1EHistoryIndexes.js --apply",
     "verify:archive-topology": "node src/scripts/verifyArchiveTopology.js",
     "backfill:historical-snapshots": "node src/scripts/backfillHistoricalSnapshots.js",
     "audit:report-lineage": "node src/scripts/auditReportLineage.js",

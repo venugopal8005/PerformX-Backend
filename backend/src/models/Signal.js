@@ -140,6 +140,18 @@ signalSchema.index({ agency_id: 1, report_id: 1, detected_at: -1, _id: -1 });
 signalSchema.index({ agency_id: 1, severity: 1, detected_at: -1 });
 signalSchema.index({ client_id: 1, severity: 1, detected_at: -1 });
 signalSchema.index({ report_run_id: 1 }, { unique: true, sparse: true });
+signalSchema.index(
+  { agency_id: 1, detected_at: -1, _id: -1 },
+  { name: "phase1e_signals_workspace_cursor", unique: false, sparse: false }
+);
+signalSchema.index(
+  { agency_id: 1, type: 1, detected_at: -1, _id: -1 },
+  { name: "phase1e_signals_type_cursor", unique: false, sparse: false }
+);
+signalSchema.index(
+  { agency_id: 1, severity: 1, detected_at: -1, _id: -1 },
+  { name: "phase1e_signals_severity_cursor", unique: false, sparse: false }
+);
 
 export const Signal =
   mongoose.models.Signal || mongoose.model("Signal", signalSchema);

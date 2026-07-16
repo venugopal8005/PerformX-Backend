@@ -94,6 +94,22 @@ activitySchema.index({ agency_id: 1, report_id: 1, createdAt: -1, _id: -1 });
 activitySchema.index({ agency_id: 1, type: 1, createdAt: -1 });
 activitySchema.index({ agency_id: 1, severity: 1, createdAt: -1 });
 activitySchema.index({ idempotency_key: 1 }, { unique: true, sparse: true });
+activitySchema.index(
+  { agency_id: 1, createdAt: -1, _id: -1 },
+  { name: "phase1e_activities_workspace_cursor", unique: false, sparse: false }
+);
+activitySchema.index(
+  { agency_id: 1, user_id: 1, createdAt: -1, _id: -1 },
+  { name: "phase1e_activities_actor_cursor", unique: false, sparse: false }
+);
+activitySchema.index(
+  { agency_id: 1, type: 1, createdAt: -1, _id: -1 },
+  { name: "phase1e_activities_type_cursor", unique: false, sparse: false }
+);
+activitySchema.index(
+  { agency_id: 1, severity: 1, createdAt: -1, _id: -1 },
+  { name: "phase1e_activities_severity_cursor", unique: false, sparse: false }
+);
 
 export const Activity =
   mongoose.models.Activity || mongoose.model("Activity", activitySchema);
