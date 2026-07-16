@@ -9,6 +9,7 @@ import {
   withArchivedClientScope,
   withHistoricalEvidenceScope,
   withOperationalClientScope,
+  withOperationalReportScope,
 } from "../utils/archiveScope.js";
 import {
   finalizeHistoryPage,
@@ -92,13 +93,65 @@ export const getClients = async (req, res) => {
     const clients = await Client.find(
       withOperationalClientScope({ agency_id: agencyId })
     ).sort({ createdAt: -1 });
-    const accounts = await MetaAdAccount.find({
-      agency_id: agencyId,
-      client_id: { $in: clients.map((client) => client._id) },
-      is_active: true,
-    }).lean();
+    const clientIds = clients.map((client) => client._id);
+    const persistedAgencyId = clients[0]?.agency_id || agencyId;
+    const [accounts, reportSummaryRows] = clientIds.length
+      ? await Promise.all([
+          MetaAdAccount.find({
+            agency_id: agencyId,
+            client_id: { $in: clientIds },
+            is_active: true,
+          }).lean(),
+          Report.aggregate([
+            {
+              $match: withOperationalReportScope({
+                agency_id: persistedAgencyId,
+                client_id: { $in: clientIds },
+              }),
+            },
+            {
+              $facet: {
+                activeReports: [
+                  { $match: { status: "active" } },
+                  { $group: { _id: "$client_id", count: { $sum: 1 } } },
+                ],
+                monitoredCampaigns: [
+                  { $unwind: "$monitored_campaigns" },
+                  {
+                    $match: {
+                      "monitored_campaigns.campaign_id": { $type: "string" },
+                    },
+                  },
+                  {
+                    $project: {
+                      client_id: 1,
+                      campaign_id: {
+                        $trim: { input: "$monitored_campaigns.campaign_id" },
+                      },
+                    },
+                  },
+                  { $match: { campaign_id: { $ne: "" } } },
+                  {
+                    $group: {
+                      _id: { client_id: "$client_id", campaign_id: "$campaign_id" },
+                    },
+                  },
+                  { $group: { _id: "$_id.client_id", count: { $sum: 1 } } },
+                ],
+              },
+            },
+          ]),
+        ])
+      : [[], []];
     const accountByClientId = new Map(
       accounts.map((account) => [String(account.client_id), account])
+    );
+    const reportSummary = reportSummaryRows[0] || {};
+    const activeReportCountByClientId = new Map(
+      (reportSummary.activeReports || []).map((row) => [String(row._id), row.count])
+    );
+    const monitoredCampaignCountByClientId = new Map(
+      (reportSummary.monitoredCampaigns || []).map((row) => [String(row._id), row.count])
     );
 
     return res.json({
@@ -106,6 +159,9 @@ export const getClients = async (req, res) => {
       clients: clients.map((client) => ({
         ...client.toObject(),
         meta_ad_account: accountByClientId.get(String(client._id)) || null,
+        activeReportCount: activeReportCountByClientId.get(String(client._id)) || 0,
+        monitoredCampaignCount:
+          monitoredCampaignCountByClientId.get(String(client._id)) || 0,
       })),
     });
   } catch (err) {
