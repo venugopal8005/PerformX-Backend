@@ -1,4 +1,5 @@
 import { Agency, User, WorkspaceMember } from "../models/index.js";
+import { logError } from "../utils/controllerLogger.js";
 
 const idsMatch = (left, right) =>
   left && right && left.toString() === right.toString();
@@ -26,14 +27,13 @@ export const ensureWorkspaceMembership = async (req, res, next) => {
     });
 
     if (!membership) {
-      const activeMemberCount = await WorkspaceMember.countDocuments({
+      const memberCount = await WorkspaceMember.countDocuments({
         workspace_id: workspaceId,
-        status: "active",
       });
 
       // Dev-safe migration path: old workspaces predate WorkspaceMember.
       // If the current user owns that legacy workspace, create the owner row.
-      if (activeMemberCount === 0) {
+      if (memberCount === 0) {
         const [agency, user] = await Promise.all([
           Agency.findById(workspaceId),
           User.findById(userId),
@@ -78,9 +78,14 @@ export const ensureWorkspaceMembership = async (req, res, next) => {
     req.user.workspaceRole = membership.role;
     return next();
   } catch (err) {
+    logError("WorkspaceAccess", "WORKSPACE_MEMBERSHIP_CHECK_FAILED", err, {
+      workspaceId: req.user?.agencyId,
+      userId: getUserId(req),
+    });
     return res.status(500).json({
       success: false,
-      message: err.message || "Workspace access check failed",
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Unable to verify workspace access",
     });
   }
 };

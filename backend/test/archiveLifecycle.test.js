@@ -1415,9 +1415,10 @@ test("runDueReports applies operational archive scope before scheduler execution
 test("normal client and report list controllers apply operational archive scopes", async () => {
   const originals = {
     clientFind: Client.find,
+    clientDistinct: Client.distinct,
     accountFind: MetaAdAccount.find,
     reportFind: Report.find,
-    runFind: ReportRun.find,
+    runAggregate: ReportRun.aggregate,
   };
   let clientQuery = null;
   let reportQuery = null;
@@ -1438,6 +1439,10 @@ test("normal client and report list controllers apply operational archive scopes
     clientQuery = query;
     return { sort: async () => [] };
   };
+  Client.distinct = async (_field, query) => {
+    clientQuery = query;
+    return ["client-1"];
+  };
   MetaAdAccount.find = () => ({ lean: async () => [] });
   Report.find = (query) => {
     reportQuery = query;
@@ -1448,12 +1453,7 @@ test("normal client and report list controllers apply operational archive scopes
       sort: async () => [],
     };
   };
-  ReportRun.find = () => ({
-    sort() {
-      return this;
-    },
-    lean: async () => [],
-  });
+  ReportRun.aggregate = async () => [];
 
   try {
     const clientRes = response();
@@ -1471,15 +1471,22 @@ test("normal client and report list controllers apply operational archive scopes
     );
     assert.equal(matches({ agency_id: "agency-1" }, clientQuery), true);
     assert.equal(
-      matches({ agency_id: "agency-1", is_archived: true }, reportQuery),
+      matches(
+        { agency_id: "agency-1", client_id: "client-1", is_archived: true },
+        reportQuery
+      ),
       false
     );
-    assert.equal(matches({ agency_id: "agency-1" }, reportQuery), true);
+    assert.equal(
+      matches({ agency_id: "agency-1", client_id: "client-1" }, reportQuery),
+      true
+    );
   } finally {
     Client.find = originals.clientFind;
+    Client.distinct = originals.clientDistinct;
     MetaAdAccount.find = originals.accountFind;
     Report.find = originals.reportFind;
-    ReportRun.find = originals.runFind;
+    ReportRun.aggregate = originals.runAggregate;
   }
 });
 

@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   createReport,
   deleteReport,
+  getArchivedReports,
   getReport,
   getReportHistory,
   getReports,
@@ -61,6 +62,7 @@ reportRouter.get(
   runAllReports
 );
 reportRouter.get("/get-reports", protect, requireWorkspaceMember, getReports);
+reportRouter.get("/archived", protect, requireWorkspaceMember, getArchivedReports);
 reportRouter.get("/:reportId/history", protect, requireWorkspaceMember, getReportHistory);
 reportRouter.get("/:reportId", protect, requireWorkspaceMember, getReport);
 reportRouter.patch("/update-report", protect, requireWorkspaceMember, updateReport);

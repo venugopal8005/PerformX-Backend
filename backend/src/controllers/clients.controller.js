@@ -1,8 +1,29 @@
+import mongoose from "mongoose";
+
 import { Client } from "../models/Client.js";
-import { MetaAdAccount } from "../models/index.js";
+import { Activity, MetaAdAccount, Report, ReportRun, Signal } from "../models/index.js";
 import { recordActivity } from "../services/activityRecorder.service.js";
 import { archiveClientLifecycle } from "../services/archiveLifecycle.service.js";
-import { withOperationalClientScope } from "../utils/archiveScope.js";
+import {
+  withAllLifecycleClientScope,
+  withArchivedClientScope,
+  withHistoricalEvidenceScope,
+  withOperationalClientScope,
+} from "../utils/archiveScope.js";
+import {
+  finalizeHistoryPage,
+  historyNotFound,
+  historyRequestError,
+  isValidObjectId,
+  parseHistoryLimit,
+  withCursorScope,
+} from "../utils/historyPagination.js";
+import { loadHistoricalActorMap } from "../utils/historicalActors.js";
+import {
+  serializeArchivedClientSummary,
+  serializeClientHistorySummary,
+  serializeHistoricalActivity,
+} from "../utils/historicalSerializers.js";
 
 const requireAgency = (req, res) => {
   const agencyId = req.user?.agencyId;
@@ -92,6 +113,126 @@ export const getClients = async (req, res) => {
       success: false,
       message: err.message || "Failed to fetch clients",
     });
+  }
+};
+
+export const getArchivedClients = async (req, res) => {
+  try {
+    const agencyId = requireAgency(req, res);
+    if (!agencyId) return;
+
+    const limit = parseHistoryLimit(req.query.limit);
+    const query = withCursorScope(
+      withArchivedClientScope({ agency_id: agencyId }),
+      "archived_at",
+      req.query.cursor
+    );
+    const documents = await Client.find(query)
+      .select("_id name status is_archived archived_at archived_by")
+      .sort({ archived_at: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
+    const page = finalizeHistoryPage({ documents, limit, timestampField: "archived_at" });
+    const clientIds = page.items.map((client) => client._id);
+
+    const [reportCounts, runCounts, signalCounts, lastActivities] = clientIds.length
+      ? await Promise.all([
+          Report.aggregate([
+            { $match: { agency_id: new mongoose.Types.ObjectId(agencyId), client_id: { $in: clientIds } } },
+            { $group: { _id: "$client_id", count: { $sum: 1 } } },
+          ]),
+          ReportRun.aggregate([
+            { $match: { agency_id: new mongoose.Types.ObjectId(agencyId), client_id: { $in: clientIds } } },
+            { $group: { _id: "$client_id", count: { $sum: 1 } } },
+          ]),
+          Signal.aggregate([
+            { $match: { agency_id: new mongoose.Types.ObjectId(agencyId), client_id: { $in: clientIds } } },
+            { $group: { _id: "$client_id", count: { $sum: 1 } } },
+          ]),
+          Activity.aggregate([
+            { $match: { agency_id: new mongoose.Types.ObjectId(agencyId), client_id: { $in: clientIds } } },
+            { $sort: { createdAt: -1, _id: -1 } },
+            { $group: { _id: "$client_id", activity: { $first: "$$ROOT" } } },
+          ]),
+        ])
+      : [[], [], [], []];
+
+    const toCountMap = (rows) => new Map(rows.map((row) => [String(row._id), row.count]));
+    const reportCountByClient = toCountMap(reportCounts);
+    const runCountByClient = toCountMap(runCounts);
+    const signalCountByClient = toCountMap(signalCounts);
+    const activityByClient = new Map(
+      lastActivities.map((row) => [String(row._id), row.activity])
+    );
+    const actorIds = [...new Set(page.items.map((client) => client.archived_by).filter(Boolean).map(String))];
+    const actorById = await loadHistoricalActorMap({ agencyId, userIds: actorIds });
+
+    return res.json({
+      success: true,
+      clients: page.items.map((client) =>
+        serializeArchivedClientSummary({
+          client,
+          actor: actorById.get(String(client.archived_by)) || null,
+          counts: {
+            reports: reportCountByClient.get(String(client._id)) || 0,
+            reportRuns: runCountByClient.get(String(client._id)) || 0,
+            signals: signalCountByClient.get(String(client._id)) || 0,
+          },
+          lastActivity: activityByClient.get(String(client._id)) || null,
+        })
+      ),
+      page: page.page,
+    });
+  } catch (err) {
+    return historyRequestError(res, err, "Failed to fetch archived clients.");
+  }
+};
+
+export const getClientHistory = async (req, res) => {
+  try {
+    const agencyId = requireAgency(req, res);
+    if (!agencyId) return;
+    if (!isValidObjectId(req.params.clientId)) return historyNotFound(res, "Client history");
+
+    const client = await Client.findOne(
+      withAllLifecycleClientScope({ _id: req.params.clientId, agency_id: agencyId })
+    )
+      .select("_id name industry notes status is_archived archived_at archived_by createdAt updatedAt")
+      .lean();
+    if (!client) return historyNotFound(res, "Client history");
+
+    const evidenceScope = { agency_id: agencyId, client_id: client._id };
+    const [actorById, reports, archivedReports, reportRuns, signals, activities, latestActivity] =
+      await Promise.all([
+        loadHistoricalActorMap({ agencyId, userIds: [client.archived_by] }),
+        Report.countDocuments(evidenceScope),
+        Report.countDocuments({ ...evidenceScope, is_archived: true }),
+        ReportRun.countDocuments(withHistoricalEvidenceScope(agencyId, { client_id: client._id })),
+        Signal.countDocuments(withHistoricalEvidenceScope(agencyId, { client_id: client._id })),
+        Activity.countDocuments(withHistoricalEvidenceScope(agencyId, { client_id: client._id })),
+        Activity.findOne(withHistoricalEvidenceScope(agencyId, { client_id: client._id }))
+          .sort({ createdAt: -1, _id: -1 })
+          .lean(),
+      ]);
+
+    return res.json({
+      success: true,
+      client: serializeClientHistorySummary({
+        client,
+        actor: actorById.get(String(client.archived_by)) || null,
+      }),
+      counts: { reports, archivedReports, reportRuns, signals, activities },
+      latestActivity: latestActivity ? serializeHistoricalActivity(latestActivity) : null,
+      capabilities: {
+        reportRuns: true,
+        signals: true,
+        activities: true,
+        liveMeta: false,
+        mutable: false,
+      },
+    });
+  } catch (err) {
+    return historyRequestError(res, err, "Failed to fetch Client history.");
   }
 };
 

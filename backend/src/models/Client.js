@@ -87,6 +87,7 @@ const clientSchema = new mongoose.Schema(
 clientSchema.index({ agency_id: 1, status: 1 });
 clientSchema.index({ agency_id: 1, name: 1 });
 clientSchema.index({ agency_id: 1, is_archived: 1, createdAt: -1 });
+clientSchema.index({ agency_id: 1, is_archived: 1, archived_at: -1, _id: -1 });
 clientSchema.index({ agency_id: 1, "lifecycle_lock.expires_at": 1 });
 clientSchema.index({ created_by: 1 });
 

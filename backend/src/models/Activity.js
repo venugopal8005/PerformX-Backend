@@ -88,7 +88,9 @@ const activitySchema = new mongoose.Schema(
 
 activitySchema.index({ agency_id: 1, createdAt: -1 });
 activitySchema.index({ agency_id: 1, client_id: 1, createdAt: -1 });
+activitySchema.index({ agency_id: 1, client_id: 1, createdAt: -1, _id: -1 });
 activitySchema.index({ agency_id: 1, report_id: 1, createdAt: -1 });
+activitySchema.index({ agency_id: 1, report_id: 1, createdAt: -1, _id: -1 });
 activitySchema.index({ agency_id: 1, type: 1, createdAt: -1 });
 activitySchema.index({ agency_id: 1, severity: 1, createdAt: -1 });
 activitySchema.index({ idempotency_key: 1 }, { unique: true, sparse: true });

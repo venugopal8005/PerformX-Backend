@@ -602,8 +602,10 @@ const reportRunSchema = new mongoose.Schema(
 );
 
 reportRunSchema.index({ agency_id: 1, report_id: 1, ran_at: -1 });
+reportRunSchema.index({ agency_id: 1, report_id: 1, ran_at: -1, _id: -1 });
 reportRunSchema.index({ agency_id: 1, meta_ad_account_id: 1, ran_at: -1 });
 reportRunSchema.index({ agency_id: 1, client_id: 1, ran_at: -1 });
+reportRunSchema.index({ agency_id: 1, client_id: 1, ran_at: -1, _id: -1 });
 reportRunSchema.index({ report_id: 1, status: 1, ran_at: -1 });
 reportRunSchema.index({ execution_key: 1 }, { unique: true, sparse: true });
 

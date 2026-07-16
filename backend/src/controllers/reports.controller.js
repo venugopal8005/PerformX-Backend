@@ -1,3 +1,7 @@
+import mongoose from "mongoose";
+
+import { Client } from "../models/Client.js";
+import { MetaAdAccount } from "../models/MetaAdAccount.js";
 import { Report } from "../models/Report.js";
 import { ReportRun } from "../models/ReportRun.js";
 import { Signal } from "../models/Signal.js";
@@ -26,7 +30,28 @@ import {
   resolveValidatedMetaContextForReport,
   validateCampaignsForMetaAccount,
 } from "../services/metaContext.service.js";
-import { withOperationalReportScope } from "../utils/archiveScope.js";
+import {
+  withAllLifecycleReportScope,
+  withArchivedReportScope,
+  withHistoricalEvidenceScope,
+  withOperationalClientScope,
+  withOperationalReportScope,
+} from "../utils/archiveScope.js";
+import {
+  finalizeHistoryPage,
+  historyNotFound,
+  historyRequestError,
+  isValidObjectId,
+  parseHistoryLimit,
+  withCursorScope,
+} from "../utils/historyPagination.js";
+import { loadHistoricalActorMap } from "../utils/historicalActors.js";
+import {
+  serializeArchivedReportSummary,
+  serializeHistoricalReportRunSummary,
+  serializeHistoricalSignal,
+  serializeReportHistorySummary,
+} from "../utils/historicalSerializers.js";
 
 const SCOPE = "Reports";
 const DEFAULT_REPORT_NAME = "Meta Ads Monitor";
@@ -442,33 +467,51 @@ export const getReports = async (req, res) => {
     if (!agencyId) return;
 
     const clientId = req.query.client_id || req.query.clientId;
+    if (clientId && !isValidObjectId(clientId)) return res.json([]);
+
+    const operationalClientIds = await Client.distinct(
+      "_id",
+      withOperationalClientScope({
+        agency_id: agencyId,
+        ...(clientId ? { _id: clientId } : {}),
+      })
+    );
+    if (!operationalClientIds.length) return res.json([]);
+
     const query = {
       agency_id: agencyId,
-      ...(clientId ? { client_id: clientId } : {}),
+      client_id: { $in: operationalClientIds },
     };
 
     const reports = await Report.find(withOperationalReportScope(query))
       .populate("meta_ad_account_id", "name ad_account_id is_accessible is_active")
       .sort({ createdAt: -1 });
-    const latestRuns = await ReportRun.find({
-      agency_id: agencyId,
-      report_id: { $in: reports.map((report) => report._id) },
-    })
-      .sort({ ran_at: -1 })
-      .lean();
+    const reportIds = reports.map((report) => report._id);
+    const latestRuns = reportIds.length
+      ? await ReportRun.aggregate([
+          {
+            $match: {
+              agency_id: new mongoose.Types.ObjectId(agencyId),
+              report_id: { $in: reportIds },
+            },
+          },
+          { $sort: { ran_at: -1, _id: -1 } },
+          { $group: { _id: "$report_id", run: { $first: "$$ROOT" } } },
+        ])
+      : [];
     const latestRunByReportId = new Map();
 
-    latestRuns.forEach((run) => {
-      const reportId = run.report_id?.toString?.() || String(run.report_id);
-      if (!latestRunByReportId.has(reportId)) {
-        latestRunByReportId.set(reportId, run);
-      }
-    });
+    latestRuns.forEach(({ _id, run }) => latestRunByReportId.set(String(_id), run));
 
     return res.json(
       reports.map((report) => ({
         ...report.toObject(),
-        latest_run: latestRunByReportId.get(report._id.toString()) || null,
+        latest_run: latestRunByReportId.has(report._id.toString())
+          ? serializeHistoricalReportRunSummary(
+              latestRunByReportId.get(report._id.toString()),
+              { report }
+            )
+          : null,
       }))
     );
   } catch (err) {
@@ -486,7 +529,11 @@ export const getReport = async (req, res) => {
     const agencyId = requireAgency(req, res);
     if (!agencyId) return;
 
-    let report = await Report.findOne(
+    if (!isValidObjectId(req.params.reportId)) {
+      return res.status(404).json({ success: false, message: "Report not found" });
+    }
+
+    const report = await Report.findOne(
       withOperationalReportScope({
         _id: req.params.reportId,
         agency_id: agencyId,
@@ -512,6 +559,16 @@ export const getReport = async (req, res) => {
       });
     }
 
+    const operationalClient = await Client.exists(
+      withOperationalClientScope({
+        _id: report.client_id,
+        agency_id: agencyId,
+      })
+    );
+    if (!operationalClient) {
+      return res.status(404).json({ success: false, message: "Report not found" });
+    }
+
     return res.json({
       success: true,
       report,
@@ -529,67 +586,279 @@ export const getReportHistory = async (req, res) => {
     const agencyId = requireAgency(req, res);
     if (!agencyId) return;
 
-    const limit = Math.min(Number(req.query.limit) || 25, 100);
+    if (!isValidObjectId(req.params.reportId)) return historyNotFound(res, "Report history");
+
+    const limit = parseHistoryLimit(req.query.limit);
     const report = await Report.findOne(
-      withOperationalReportScope({
-        _id: req.params.reportId,
-        agency_id: agencyId,
-      })
+      withAllLifecycleReportScope({ _id: req.params.reportId, agency_id: agencyId })
     )
-      .populate("client_id", "name status")
-      .populate("meta_ad_account_id", "name ad_account_id is_accessible is_active");
+      .select(
+        "_id agency_id client_id meta_ad_account_id meta_account_external_id_snapshot meta_account_name_snapshot name type status severity recipients internal_recipients client_recipients generate_client_report generate_internal_report client_delivery_mode safety_settings monitored_campaigns last_summary last_signal_at next_run_at last_run_at is_archived archived_at archived_by schedule createdAt updatedAt"
+      )
+      .lean();
+    if (!report) return historyNotFound(res, "Report history");
 
-    if (!report) {
-      const archivedReport = await Report.exists({
-        _id: req.params.reportId,
-        agency_id: agencyId,
-        is_archived: true,
-      });
-      if (archivedReport) {
-        return res.status(409).json({
-          success: false,
-          code: "REPORT_ARCHIVED",
-          message: "Archived report history is not available in this phase.",
-        });
-      }
-      return res.status(404).json({
-        success: false,
-        message: "Report not found",
-      });
-    }
-
-    const [runs, signals] = await Promise.all([
-      ReportRun.find({
-        agency_id: agencyId,
-        report_id: report._id,
-      })
-        .sort({ ran_at: -1 })
-        .limit(limit)
-        .lean(),
-      Signal.find({
-        agency_id: agencyId,
-        report_id: report._id,
-      })
-        .sort({ detected_at: -1 })
-        .limit(limit)
-        .lean(),
+    const runQuery = withCursorScope(
+      withHistoricalEvidenceScope(agencyId, { report_id: report._id }),
+      "ran_at",
+      req.query.runsCursor
+    );
+    const signalQuery = withCursorScope(
+      withHistoricalEvidenceScope(agencyId, { report_id: report._id }),
+      "detected_at",
+      req.query.signalsCursor
+    );
+    const [
+      runDocuments,
+      signalDocuments,
+      latestRunDocument,
+      client,
+      actorById,
+      runCount,
+      signalCount,
+    ] =
+      await Promise.all([
+        ReportRun.find(runQuery)
+          .select(
+            "_id agency_id client_id report_id context_snapshot meta_ad_account_id meta_account_external_id_snapshot meta_account_name_snapshot trigger_type execution_stage status severity summary key_delta likely_cause decision next_signal period comparison narrative monitored_campaigns internal_report.status internal_report.subject internal_report.html internal_report.text internal_report.sent_at client_report.status client_report.subject client_report.html client_report.text client_report.sent_at client_report.approved_at client_report.cancelled_at client_report.safety ran_at createdAt"
+          )
+          .sort({ ran_at: -1, _id: -1 })
+          .limit(limit + 1)
+          .lean(),
+        Signal.find(signalQuery)
+          .select(
+            "_id agency_id client_id report_id report_run_id context_snapshot campaign_id type severity title description recommendation metadata detected_at createdAt"
+          )
+          .sort({ detected_at: -1, _id: -1 })
+          .limit(limit + 1)
+          .lean(),
+        ReportRun.findOne(
+          withHistoricalEvidenceScope(agencyId, { report_id: report._id })
+        )
+          .select(
+            "_id agency_id client_id report_id context_snapshot meta_ad_account_id meta_account_external_id_snapshot meta_account_name_snapshot ran_at createdAt"
+          )
+          .sort({ ran_at: -1, _id: -1 })
+          .lean(),
+        report.client_id
+          ? Client.findOne({ _id: report.client_id, agency_id: agencyId })
+              .select("_id name status is_archived")
+              .lean()
+          : null,
+        loadHistoricalActorMap({ agencyId, userIds: [report.archived_by] }),
+        ReportRun.countDocuments(
+          withHistoricalEvidenceScope(agencyId, { report_id: report._id })
+        ),
+        Signal.countDocuments(
+          withHistoricalEvidenceScope(agencyId, { report_id: report._id })
+        ),
+      ]);
+    const runPage = finalizeHistoryPage({
+      documents: runDocuments,
+      limit,
+      timestampField: "ran_at",
+    });
+    const signalPage = finalizeHistoryPage({
+      documents: signalDocuments,
+      limit,
+      timestampField: "detected_at",
+    });
+    const latestRun = latestRunDocument || null;
+    const metaAccountIds = [
+      ...new Set(
+        runPage.items
+          .map((run) => run.meta_ad_account_id)
+          .concat(latestRun?.meta_ad_account_id, report.meta_ad_account_id)
+          .filter(Boolean)
+          .map(String)
+      ),
+    ];
+    const signalClientIds = [
+      ...new Set(
+        signalPage.items
+          .map((signal) => signal.client_id)
+          .filter(Boolean)
+          .map(String)
+      ),
+    ];
+    const [metaAccounts, signalClients] = await Promise.all([
+      metaAccountIds.length
+        ? MetaAdAccount.find({
+            _id: { $in: metaAccountIds },
+            agency_id: agencyId,
+          })
+            .select("_id name ad_account_id")
+            .lean()
+        : [],
+      signalClientIds.length
+        ? Client.find({
+            _id: { $in: signalClientIds },
+            agency_id: agencyId,
+          })
+            .select("_id name is_archived")
+            .lean()
+        : [],
     ]);
+    const metaAccountById = new Map(
+      metaAccounts.map((account) => [String(account._id), account])
+    );
+    const signalClientById = new Map(
+      signalClients.map((signalClient) => [String(signalClient._id), signalClient])
+    );
+    const historicalMetaFallback = (metaAdAccountId) => {
+      const account = metaAccountById.get(String(metaAdAccountId));
+      return account ? { ...account, externalId: account.ad_account_id } : null;
+    };
 
     return res.json({
       success: true,
-      report,
-      runs,
-      signals,
+      report: serializeReportHistorySummary({
+        report,
+        actor: actorById.get(String(report.archived_by)) || null,
+        latestRun,
+        client,
+        metaAccount: historicalMetaFallback(
+          latestRun?.meta_ad_account_id || report.meta_ad_account_id
+        ),
+        counts: { reportRuns: runCount, signals: signalCount },
+      }),
+      runs: runPage.items.map((run) =>
+        serializeHistoricalReportRunSummary(run, {
+          report,
+          client,
+          metaAccount: historicalMetaFallback(run.meta_ad_account_id),
+        })
+      ),
+      signals: signalPage.items.map((signal) =>
+        serializeHistoricalSignal(signal, {
+          report:
+            String(signal.report_id || "") === String(report._id) ? report : null,
+          client: signalClientById.get(String(signal.client_id)) || null,
+        })
+      ),
+      page: { runs: runPage.page, signals: signalPage.page },
     });
   } catch (err) {
     logError(SCOPE, "GET_REPORT_HISTORY_FAILED", err, {
       reportId: req.params?.reportId,
     });
 
-    return res.status(500).json({
-      success: false,
-      message: err.message || "Failed to fetch report history",
+    return historyRequestError(res, err, "Failed to fetch report history");
+  }
+};
+
+export const getArchivedReports = async (req, res) => {
+  try {
+    const agencyId = requireAgency(req, res);
+    if (!agencyId) return;
+    const clientId = req.query.clientId || req.query.client_id;
+    if (clientId && !isValidObjectId(clientId)) return historyNotFound(res, "Archived reports");
+
+    const limit = parseHistoryLimit(req.query.limit);
+    const query = withCursorScope(
+      withArchivedReportScope({
+        agency_id: agencyId,
+        ...(clientId ? { client_id: clientId } : {}),
+      }),
+      "archived_at",
+      req.query.cursor
+    );
+    const documents = await Report.find(query)
+      .select(
+        "_id agency_id client_id meta_ad_account_id meta_account_external_id_snapshot meta_account_name_snapshot name type status severity schedule last_run_at is_archived archived_at archived_by createdAt updatedAt"
+      )
+      .sort({ archived_at: -1, _id: -1 })
+      .limit(limit + 1)
+      .lean();
+    const page = finalizeHistoryPage({ documents, limit, timestampField: "archived_at" });
+    const reportIds = page.items.map((report) => report._id);
+    const agencyObjectId = new mongoose.Types.ObjectId(agencyId);
+    const [runRows, signalRows] = reportIds.length
+      ? await Promise.all([
+          ReportRun.aggregate([
+            { $match: { agency_id: agencyObjectId, report_id: { $in: reportIds } } },
+            { $sort: { ran_at: -1, _id: -1 } },
+            {
+              $group: {
+                _id: "$report_id",
+                count: { $sum: 1 },
+                latestRun: { $first: "$$ROOT" },
+              },
+            },
+          ]),
+          Signal.aggregate([
+            { $match: { agency_id: agencyObjectId, report_id: { $in: reportIds } } },
+            { $group: { _id: "$report_id", count: { $sum: 1 } } },
+          ]),
+        ])
+      : [[], []];
+    const runByReport = new Map(runRows.map((row) => [String(row._id), row]));
+    const signalByReport = new Map(signalRows.map((row) => [String(row._id), row.count]));
+    const clientIds = [
+      ...new Set(
+        page.items
+          .map((report) => report.client_id)
+          .concat(runRows.map((row) => row.latestRun?.client_id))
+          .filter(Boolean)
+          .map(String)
+      ),
+    ];
+    const actorIds = [
+      ...new Set(page.items.map((report) => report.archived_by).filter(Boolean).map(String)),
+    ];
+    const metaAccountIds = [
+      ...new Set(
+        page.items
+          .map((report) => report.meta_ad_account_id)
+          .concat(runRows.map((row) => row.latestRun?.meta_ad_account_id))
+          .filter(Boolean)
+          .map(String)
+      ),
+    ];
+    const [clients, actorById, metaAccounts] = await Promise.all([
+      clientIds.length
+        ? Client.find({ _id: { $in: clientIds }, agency_id: agencyId })
+            .select("_id name status is_archived")
+            .lean()
+        : [],
+      loadHistoricalActorMap({ agencyId, userIds: actorIds }),
+      metaAccountIds.length
+        ? MetaAdAccount.find({ _id: { $in: metaAccountIds }, agency_id: agencyId })
+            .select("_id name ad_account_id")
+            .lean()
+        : [],
+    ]);
+    const clientById = new Map(clients.map((client) => [String(client._id), client]));
+    const metaAccountById = new Map(
+      metaAccounts.map((account) => [String(account._id), account])
+    );
+
+    return res.json({
+      success: true,
+      reports: page.items.map((report) => {
+        const runInfo = runByReport.get(String(report._id));
+        return serializeArchivedReportSummary({
+          report,
+          actor: actorById.get(String(report.archived_by)) || null,
+          latestRun: runInfo?.latestRun || null,
+          client:
+            clientById.get(String(runInfo?.latestRun?.client_id || report.client_id)) || null,
+          metaAccount: (() => {
+            const account = metaAccountById.get(
+              String(runInfo?.latestRun?.meta_ad_account_id || report.meta_ad_account_id)
+            );
+            return account ? { ...account, externalId: account.ad_account_id } : null;
+          })(),
+          counts: {
+            reportRuns: runInfo?.count || 0,
+            signals: signalByReport.get(String(report._id)) || 0,
+          },
+        });
+      }),
+      page: page.page,
     });
+  } catch (err) {
+    return historyRequestError(res, err, "Failed to fetch archived reports.");
   }
 };
 

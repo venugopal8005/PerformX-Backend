@@ -1929,6 +1929,37 @@ export const refreshMetaAdAccountCampaigns = async (req, res) => {
       });
     }
 
+    if (!account.client_id) {
+      return res.status(409).json({
+        success: false,
+        code: "META_ACCOUNT_BINDING_INVALID",
+        message: "This Meta ad account is not assigned to an active client.",
+      });
+    }
+
+    const operationalClient = await Client.findOne(
+      withOperationalClientScope({
+        _id: account.client_id,
+        agency_id: agencyId,
+      })
+    )
+      .select("_id")
+      .lean();
+    if (!operationalClient) {
+      const archivedClient = await Client.exists({
+        _id: account.client_id,
+        agency_id: agencyId,
+        is_archived: true,
+      });
+      return res.status(409).json({
+        success: false,
+        code: archivedClient ? "CLIENT_ARCHIVED" : "META_ACCOUNT_BINDING_INVALID",
+        message: archivedClient
+          ? "Archived clients cannot refresh Meta campaigns."
+          : "The Client assigned to this Meta ad account is unavailable.",
+      });
+    }
+
     const context = await resolveMetaContextForAccount({
       agencyId,
       metaAdAccountId: account._id,

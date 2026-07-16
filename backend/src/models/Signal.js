@@ -134,7 +134,9 @@ const signalSchema = new mongoose.Schema(
 );
 
 signalSchema.index({ agency_id: 1, client_id: 1, detected_at: -1 });
+signalSchema.index({ agency_id: 1, client_id: 1, detected_at: -1, _id: -1 });
 signalSchema.index({ agency_id: 1, report_id: 1, detected_at: -1 });
+signalSchema.index({ agency_id: 1, report_id: 1, detected_at: -1, _id: -1 });
 signalSchema.index({ agency_id: 1, severity: 1, detected_at: -1 });
 signalSchema.index({ client_id: 1, severity: 1, detected_at: -1 });
 signalSchema.index({ report_run_id: 1 }, { unique: true, sparse: true });
