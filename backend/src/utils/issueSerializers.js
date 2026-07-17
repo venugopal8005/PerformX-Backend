@@ -85,6 +85,7 @@ export const serializeIssueListItem = (issue, parents = {}) => ({
   archetype: text(issue.archetype, 128),
   metricFamily: text(issue.metric_family, 128),
   occurrenceCount: safeHistoricalNumber(issue.occurrence_count),
+  reopenCount: safeHistoricalNumber(issue.reopen_count),
   absenceStreak: safeHistoricalNumber(issue.absence_streak),
   openedAt: date(issue.opened_at),
   lastSeenAt: date(issue.last_seen_at),

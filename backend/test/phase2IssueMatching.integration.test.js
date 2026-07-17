@@ -902,6 +902,7 @@ test("Issue list applies agency and operational filters with deterministic pagin
   const domain = await createDomain();
   await process(await createRun(domain, { start: "2026-07-10", severity: "moderate" }));
   await process(await createRun(domain, { start: "2026-07-11", campaignId: "campaign-2", campaigns: ["campaign-2"], severity: "critical" }));
+  await Issue.updateMany({ agency_id: domain.agency._id }, { $set: { reopen_count: 2 } });
   const firstResponse = response();
   await getIssues({
     user: { agencyId: domain.agency._id },
@@ -909,6 +910,9 @@ test("Issue list applies agency and operational filters with deterministic pagin
   }, firstResponse);
   assert.equal(firstResponse.statusCode, 200);
   assert.equal(firstResponse.body.issues.length, 1);
+  assert.equal(firstResponse.body.issues[0].reopenCount, 2);
+  assert.equal("predecessorIssueId" in firstResponse.body.issues[0], false);
+  assert.equal("lifecycleRevision" in firstResponse.body.issues[0], false);
   assert.equal(firstResponse.body.page.hasMore, true);
   assert.ok(firstResponse.body.page.nextCursor);
   const secondResponse = response();

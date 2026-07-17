@@ -35,8 +35,28 @@ import {
 } from "../src/services/phase2IssueIndexes.service.js";
 import { parsePhase2IssueIndexMode } from "../src/scripts/applyPhase2IssueIndexes.js";
 import { parsePhase2IssueMigrationArgs } from "../src/scripts/migratePhase2Issues.js";
+import { serializeIssueListItem } from "../src/utils/issueSerializers.js";
 
 const id = () => new mongoose.Types.ObjectId();
+
+test("Issue list serialization exposes only persisted recurrence counts", () => {
+  const baseIssue = {
+    _id: id(),
+    reopen_count: 0,
+    claim_token: "private-claim",
+    lifecycle_revision: 9,
+    predecessor_issue_id: id(),
+  };
+
+  const initial = serializeIssueListItem(baseIssue);
+  const reopened = serializeIssueListItem({ ...baseIssue, reopen_count: 2 });
+
+  assert.equal(initial.reopenCount, 0);
+  assert.equal(reopened.reopenCount, 2);
+  assert.equal("claim_token" in reopened, false);
+  assert.equal("lifecycleRevision" in reopened, false);
+  assert.equal("predecessorIssueId" in reopened, false);
+});
 
 const fixture = ({ campaigns = ["campaign-1"], type = "daily", timezone = "Asia/Kolkata" } = {}) => {
   const agencyId = id();
