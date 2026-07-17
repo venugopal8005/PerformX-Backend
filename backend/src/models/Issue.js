@@ -163,6 +163,14 @@ const issueSchema = new mongoose.Schema(
       immutable: true,
     },
     lifecycle_revision: { type: Number, min: 0, default: 0, required: true },
+    latest_intervention_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Intervention",
+      default: null,
+    },
+    intervention_count: { type: Number, min: 0, default: 0, required: true },
+    last_intervention_at: { type: Date, default: null },
+    intervention_revision: { type: Number, min: 0, default: 0, required: true },
   },
   {
     timestamps: true,

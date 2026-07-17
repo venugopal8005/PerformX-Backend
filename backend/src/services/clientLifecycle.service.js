@@ -98,6 +98,55 @@ export const acquireRequiredClientLifecycleLease = async (options = {}) => {
   return lease;
 };
 
+export const orderedUniqueClientIds = (clientIds = []) =>
+  [...new Set(clientIds.filter(Boolean).map((clientId) => String(clientId)))].sort((left, right) =>
+    left.localeCompare(right)
+  );
+
+export const releaseClientLifecycleLeases = async ({
+  agencyId,
+  leases = [],
+  ClientModel = Client,
+} = {}) => {
+  const results = [];
+  for (const lease of [...leases].reverse()) {
+    results.push(
+      await releaseClientLifecycleLease({
+        agencyId,
+        clientId: lease.clientId,
+        token: lease.token,
+        ClientModel,
+      }).catch(() => false)
+    );
+  }
+  return results;
+};
+
+export const acquireRequiredClientLifecycleLeases = async ({
+  agencyId,
+  clientIds = [],
+  operation,
+  ClientModel = Client,
+} = {}) => {
+  const orderedClientIds = orderedUniqueClientIds(clientIds);
+  const leases = [];
+  try {
+    for (const clientId of orderedClientIds) {
+      const lease = await acquireRequiredClientLifecycleLease({
+        agencyId,
+        clientId,
+        operation,
+        ClientModel,
+      });
+      leases.push({ ...lease, clientId });
+    }
+    return leases;
+  } catch (error) {
+    await releaseClientLifecycleLeases({ agencyId, leases, ClientModel });
+    throw error;
+  }
+};
+
 export const renewClientLifecycleLease = async ({
   agencyId,
   clientId,

@@ -864,7 +864,7 @@ test("cleanup, removal, disconnect, and Client archive each advance affected rev
   assert.equal(archivedAccount.client_id, null);
 });
 
-test("report creation final transaction rejects reassignment during campaign validation", async () => {
+test("report creation Client lease blocks reassignment during campaign validation", async () => {
   const scenario = await createScenario({ suffix: "create-race" });
   const originalFetch = globalThis.fetch;
   let releaseFetch;
@@ -912,20 +912,18 @@ test("report creation final transaction rejects reassignment during campaign val
   try {
     await started;
     const assignment = await assign({ scenario, clientId: scenario.clientB._id });
-    assert.equal(assignment.statusCode, 200);
+    assert.equal(assignment.statusCode, 409);
+    assert.equal(assignment.payload.code, "client_lifecycle_operation_in_progress");
     releaseFetch();
     await creating;
   } finally {
     releaseFetch?.();
     globalThis.fetch = originalFetch;
   }
-  assert.equal(res.statusCode, 409);
-  assert.ok(
-    ["META_REPORT_BINDING_INVALID", "META_ACCOUNT_ASSIGNMENT_CHANGED"].includes(
-      res.payload.code
-    )
-  );
-  assert.equal(await Report.countDocuments({ name: "Racing create" }), 0);
+  assert.equal(res.statusCode, 201);
+  assert.equal(await Report.countDocuments({ name: "Racing create" }), 1);
+  const account = await MetaAdAccount.findById(scenario.account._id);
+  assert.equal(String(account.client_id), String(scenario.clientA._id));
 });
 
 test("post-fetch reassignment rejects generated evidence, Signals, and artifacts", async () => {

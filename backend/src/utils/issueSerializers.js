@@ -106,6 +106,10 @@ export const serializeIssueDetail = (issue, parents = {}) => ({
   reopenCount: safeHistoricalNumber(issue.reopen_count),
   reopenedAt: date(issue.reopened_at),
   lifecycleRevision: safeHistoricalNumber(issue.lifecycle_revision),
+  latestInterventionId: id(issue.latest_intervention_id),
+  interventionCount: safeHistoricalNumber(issue.intervention_count) || 0,
+  lastInterventionAt: date(issue.last_intervention_at),
+  interventionRevision: safeHistoricalNumber(issue.intervention_revision) || 0,
   scope: {
     version: safeHistoricalNumber(issue?.scope?.version),
     entity: {

@@ -15,9 +15,11 @@ import invitesRouter from "./routes/invites.routes.js";
 import workspacesRouter from "./routes/workspaces.routes.js";
 import reportRunsRouter from "./routes/reportRuns.routes.js";
 import issuesRouter from "./routes/issues.routes.js";
+import interventionsRouter from "./routes/interventions.routes.js";
 import { startN8NScheduler } from "./jobs/n8nScheduler.js";
 import {
   Activity,
+  Intervention,
   Issue,
   ReportRun,
   Signal,
@@ -27,6 +29,7 @@ import {
 } from "./models/index.js";
 import { initializeExecutionIntegrity } from "./services/executionIntegrityIndexes.service.js";
 import { initializePhase2IssueIntegrity } from "./services/phase2IssueIndexes.service.js";
+import { initializePhase3InterventionIntegrity } from "./services/phase3InterventionIndexes.service.js";
 import { connectMongooseWithIndexManagementDisabled } from "./services/mongooseConnection.service.js";
 import { logAction, logError } from "./utils/controllerLogger.js";
 
@@ -52,6 +55,7 @@ app.use("/api/invites", invitesRouter);
 app.use("/api/workspaces", workspacesRouter);
 app.use("/api/report-runs", reportRunsRouter);
 app.use("/api/issues", issuesRouter);
+app.use("/api/interventions", interventionsRouter);
 
 // db
 try {
@@ -79,6 +83,15 @@ try {
   });
 } catch (error) {
   phase2IssueIntegrity = { ready: false, error };
+}
+
+let phase3InterventionIntegrity;
+try {
+  phase3InterventionIntegrity = await initializePhase3InterventionIntegrity({
+    collection: Intervention.collection,
+  });
+} catch (error) {
+  phase3InterventionIntegrity = { ready: false, error };
 }
 
 if (executionIntegrity.ready) {
@@ -120,6 +133,27 @@ if (phase2IssueIntegrity.ready) {
     "Phase2IssueIntegrity",
     "STARTUP_VERIFICATION_FAILED",
     phase2IssueIntegrity.error || new Error("Critical Phase 2 Issue indexes are absent.")
+  );
+}
+
+if (phase3InterventionIntegrity.ready) {
+  logAction(
+    "Phase3InterventionIntegrity",
+    "STARTUP_VERIFIED",
+    {
+      indexes: phase3InterventionIntegrity.results.map((result) => ({
+        collection: result.collection,
+        name: result.expectedName,
+        status: result.classification,
+      })),
+    },
+    "green"
+  );
+} else {
+  logError(
+    "Phase3InterventionIntegrity",
+    "STARTUP_VERIFICATION_FAILED",
+    phase3InterventionIntegrity.error || new Error("Required Phase 3 Intervention indexes are absent.")
   );
 }
 

@@ -347,10 +347,13 @@ test("execution integrates Issue processing after evidence and before delivery",
   assert.ok(helper >= 0 && issues > helper && delivery > issues);
 });
 
-test("Issue router is read-only and startup never applies Phase 2 indexes", () => {
+test("Issue lifecycle remains read-only and startup never applies Phase 2 indexes", () => {
   const routes = readFileSync(new URL("../src/routes/issues.routes.js", import.meta.url), "utf8");
   const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
-  assert.equal(routes.includes("issueRouter.post"), false);
+  const postRoutes = [...routes.matchAll(/issueRouter\.post\(\"([^\"]+)\"/g)].map(
+    (match) => match[1]
+  );
+  assert.deepEqual(postRoutes, ["/:issueId/interventions"]);
   assert.equal(routes.includes("issueRouter.patch"), false);
   assert.equal(routes.includes("issueRouter.delete"), false);
   assert.equal(server.includes("initializePhase2IssueIntegrity"), true);

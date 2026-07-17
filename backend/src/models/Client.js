@@ -8,7 +8,13 @@ const lifecycleLockSchema = new mongoose.Schema(
     },
     operation: {
       type: String,
-      enum: ["archive", "report_create", "report_reparent", "meta_assignment"],
+      enum: [
+        "archive",
+        "report_create",
+        "report_reparent",
+        "meta_assignment",
+        "intervention_write",
+      ],
       required: true,
     },
     acquired_at: {

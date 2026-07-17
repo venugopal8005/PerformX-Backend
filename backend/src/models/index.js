@@ -7,6 +7,7 @@ export { Report } from "./Report.js";
 export { ReportRun } from "./ReportRun.js";
 export { Signal } from "./Signal.js";
 export { Issue } from "./Issue.js";
+export { Intervention } from "./Intervention.js";
 export { Activity } from "./Activity.js";
 export { WorkspaceMember } from "./WorkspaceMember.js";
 export { WorkspaceInvite } from "./WorkspaceInvite.js";

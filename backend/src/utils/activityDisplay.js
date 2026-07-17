@@ -135,6 +135,27 @@ const ACTIVITY_DISPLAY = {
     fallbackTitle: "Monitor archived",
     fallbackDescription: "Monitor was removed from operational use while history was retained.",
   },
+  intervention_recorded: {
+    label: "Action recorded",
+    icon: "ClipboardCheck",
+    tone: "analysis",
+    fallbackTitle: "Intervention recorded",
+    fallbackDescription: "A human action was recorded for a performance Issue.",
+  },
+  intervention_corrected: {
+    label: "Action corrected",
+    icon: "FilePenLine",
+    tone: "decision",
+    fallbackTitle: "Intervention corrected",
+    fallbackDescription: "A corrected action record superseded the previous Intervention.",
+  },
+  intervention_cancelled: {
+    label: "Action cancelled",
+    icon: "Ban",
+    tone: "paused",
+    fallbackTitle: "Intervention cancelled",
+    fallbackDescription: "The recorded action was cancelled without deleting its history.",
+  },
   report_executed: {
     label: "Analyzed",
     icon: "Activity",

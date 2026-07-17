@@ -12,6 +12,8 @@
     "apply:phase1e-history-indexes": "node src/scripts/applyPhase1EHistoryIndexes.js --apply",
     "inspect:phase2-issue-indexes": "node src/scripts/applyPhase2IssueIndexes.js --inspect",
     "apply:phase2-issue-indexes": "node src/scripts/applyPhase2IssueIndexes.js --apply",
+    "inspect:phase3-intervention-indexes": "node src/scripts/applyPhase3InterventionIndexes.js --inspect",
+    "apply:phase3-intervention-indexes": "node src/scripts/applyPhase3InterventionIndexes.js --apply",
     "migrate:phase2-issues": "node src/scripts/migratePhase2Issues.js --dry-run",
     "verify:archive-topology": "node src/scripts/verifyArchiveTopology.js",
     "backfill:historical-snapshots": "node src/scripts/backfillHistoricalSnapshots.js",
