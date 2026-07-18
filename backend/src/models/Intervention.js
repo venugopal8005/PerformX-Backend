@@ -8,6 +8,29 @@ import {
   INTERVENTION_LIMITS,
   INTERVENTION_STATUSES,
 } from "../domain/phase3Intervention.domain.js";
+import {
+  EVALUATION_INTENT_MODES,
+  EVALUATION_LIMITS,
+  EVALUATION_METRICS,
+} from "../domain/phase4Evaluation.domain.js";
+
+const evaluationIntentSchema = new mongoose.Schema(
+  {
+    mode: { type: String, enum: EVALUATION_INTENT_MODES, required: true },
+    primary_metric: { type: String, enum: [...EVALUATION_METRICS, null], default: null },
+    watched_metrics: {
+      type: [{ type: String, enum: EVALUATION_METRICS }],
+      default: [],
+      validate: {
+        validator: (value) => Array.isArray(value) && value.length <= EVALUATION_LIMITS.watchedMetrics,
+        message: "Evaluation watched metrics exceed the allowed limit.",
+      },
+    },
+    resolution_source: { type: String, trim: true, required: true, maxlength: 64 },
+    rule_version: { type: Number, min: 1, required: true },
+  },
+  { _id: false, strict: "throw" }
+);
 
 const actorSnapshotSchema = new mongoose.Schema(
   {
@@ -199,6 +222,7 @@ const interventionSchema = new mongoose.Schema(
     scope_snapshot: { type: scopeSnapshotSchema, required: true, immutable: true },
     latest_signal_snapshot: { type: signalSnapshotSchema, required: true, immutable: true },
     issue_fingerprint_snapshot: { type: String, required: true, immutable: true, match: /^[a-f0-9]{64}$/ },
+    evaluation_intent: { type: evaluationIntentSchema, default: undefined, immutable: true },
     status: { type: String, enum: INTERVENTION_STATUSES, required: true, default: "active" },
     supersedes_intervention_id: { type: mongoose.Schema.Types.ObjectId, ref: "Intervention", default: null, immutable: true },
     superseded_by_intervention_id: { type: mongoose.Schema.Types.ObjectId, ref: "Intervention", default: null },
@@ -216,6 +240,7 @@ const interventionSchema = new mongoose.Schema(
     },
     request_hash: { type: String, required: true, immutable: true, select: false, match: /^[a-f0-9]{64}$/ },
     revision: { type: Number, min: 0, required: true, default: 0 },
+    evaluation_fence_counter: { type: Number, min: 0, required: true, default: 0, select: false },
   },
   {
     timestamps: true,
@@ -240,6 +265,7 @@ const INTERNAL_QUERY_OPERATIONS = Object.freeze({
   cancel: Object.freeze({
     setPaths: Object.freeze(["status", "cancellation", "updatedAt"]),
   }),
+  evaluation_fence: Object.freeze({ setPaths: Object.freeze([]) }),
 });
 
 const exactPaths = (actual, expected) =>
@@ -280,7 +306,7 @@ const validateInternalQueryMutation = function validateInternalQueryMutation() {
         : "General Intervention query mutation is not permitted."
     );
   }
-  if (command === "replaceOne" || command === "updateMany") {
+  if (command === "findOneAndReplace" || command === "replaceOne" || command === "updateMany") {
     throw interventionQueryMutationError(`${command} is not permitted for Interventions.`);
   }
 
@@ -290,7 +316,7 @@ const validateInternalQueryMutation = function validateInternalQueryMutation() {
     !exactPaths(filterPaths, ["_id", "agency_id", "status", "revision"]) ||
     !validObjectId(filter._id) ||
     !validObjectId(filter.agency_id) ||
-    filter.status !== "active" ||
+    (operation === "evaluation_fence" ? !INTERVENTION_STATUSES.includes(filter.status) : filter.status !== "active") ||
     !Number.isSafeInteger(filter.revision) ||
     filter.revision < 0
   ) {
@@ -304,6 +330,12 @@ const validateInternalQueryMutation = function validateInternalQueryMutation() {
     throw interventionQueryMutationError("Intervention replacement and pipeline updates are not permitted.");
   }
   const operators = Object.keys(update);
+  if (operation === "evaluation_fence") {
+    if (!exactPaths(operators, ["$inc"]) || !plainObject(update.$inc) || !exactPaths(Object.keys(update.$inc), ["evaluation_fence_counter"]) || update.$inc.evaluation_fence_counter !== 1) {
+      throw interventionQueryMutationError("Evaluation fence mutation is invalid.");
+    }
+    return;
+  }
   if (!exactPaths(operators, ["$set", "$inc"])) {
     throw interventionQueryMutationError("Intervention update operators are not permitted.");
   }
@@ -359,9 +391,13 @@ const validateInternalQueryMutation = function validateInternalQueryMutation() {
 };
 
 interventionSchema.pre(
-  ["updateOne", "updateMany", "findOneAndUpdate", "replaceOne"],
+  ["updateOne", "updateMany", "findOneAndUpdate", "findOneAndReplace", "replaceOne"],
   validateInternalQueryMutation
 );
+
+interventionSchema.pre("bulkWrite", function rejectBulkMutation() {
+  throw interventionQueryMutationError("Intervention bulk mutation is not permitted.");
+});
 
 interventionSchema.pre("save", function rejectExistingDocumentMutation() {
   if (!this.isNew && this.isModified()) {

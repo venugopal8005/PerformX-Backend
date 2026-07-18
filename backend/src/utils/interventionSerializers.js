@@ -125,6 +125,13 @@ export const serializeInterventionListItem = (input = {}) => {
     campaignId: text(value.campaign_id, 256),
     actionType: text(value.action_type, 64),
     actionVersion: number(value.action_version),
+    evaluationIntent: value.evaluation_intent ? {
+      mode: text(value.evaluation_intent.mode, 32),
+      primaryMetric: text(value.evaluation_intent.primary_metric, 64),
+      watchedMetrics: (value.evaluation_intent.watched_metrics || []).map((metric) => text(metric, 64)).filter(Boolean),
+      resolutionSource: text(value.evaluation_intent.resolution_source, 64),
+      ruleVersion: number(value.evaluation_intent.rule_version),
+    } : null,
     actionPayload: serializeInterventionActionPayload(value.action_payload),
     reason: text(value.reason, 1000),
     note: text(value.note),

@@ -771,6 +771,12 @@ test("correction permission, replay, and semantic conflict fail closed", async (
     reason: "Correct the original record",
     performedAt: "2026-07-17T11:00:00.000Z",
   };
+  let failEvaluation = true;
+  const evaluated = [];
+  const evaluationProcessor = async ({ interventionId }) => {
+    if (failEvaluation) throw new Error("injected correction invalidation failure");
+    evaluated.push(String(interventionId));
+  };
   await assert.rejects(
     correctIntervention({
       agencyId: scenario.agency._id,
@@ -787,16 +793,20 @@ test("correction permission, replay, and semantic conflict fail closed", async (
     interventionId: created.intervention._id,
     input,
     now: new Date(now.getTime() + 1000),
+    evaluationProcessor,
   });
+  failEvaluation = false;
   const replay = await correctIntervention({
     agencyId: scenario.agency._id,
     recorder: { id: scenario.owner._id },
     interventionId: created.intervention._id,
     input,
     now: new Date(now.getTime() + 1000),
+    evaluationProcessor,
   });
   assert.equal(replay.idempotentReplay, true);
   assert.equal(String(replay.intervention._id), String(first.intervention._id));
+  assert.deepEqual(new Set(evaluated), new Set([String(created.intervention._id), String(first.intervention._id)]));
   await assert.rejects(
     correctIntervention({
       agencyId: scenario.agency._id,
@@ -815,10 +825,18 @@ test("cancellation is write-once, idempotent, and does not alter Issue caches or
   const issueBefore = await Issue.findById(scenario.issue._id);
   const beforeState = lifecycleState(issueBefore);
   const input = { idempotencyKey: `cancel-${sequence}-123456789`, expectedRevision: 0, reason: "Entry was recorded in error" };
-  const cancelled = await cancelIntervention({ agencyId: scenario.agency._id, recorder: { id: scenario.member._id }, interventionId: created.intervention._id, input, now: new Date(now.getTime() + 1000) });
-  const replay = await cancelIntervention({ agencyId: scenario.agency._id, recorder: { id: scenario.member._id }, interventionId: created.intervention._id, input, now: new Date(now.getTime() + 1000) });
+  let failEvaluation = true;
+  let recoveredEvaluations = 0;
+  const evaluationProcessor = async () => {
+    if (failEvaluation) throw new Error("injected cancellation invalidation failure");
+    recoveredEvaluations += 1;
+  };
+  const cancelled = await cancelIntervention({ agencyId: scenario.agency._id, recorder: { id: scenario.member._id }, interventionId: created.intervention._id, input, now: new Date(now.getTime() + 1000), evaluationProcessor });
+  failEvaluation = false;
+  const replay = await cancelIntervention({ agencyId: scenario.agency._id, recorder: { id: scenario.member._id }, interventionId: created.intervention._id, input, now: new Date(now.getTime() + 1000), evaluationProcessor });
   assert.equal(cancelled.intervention.status, "cancelled");
   assert.equal(replay.idempotentReplay, true);
+  assert.equal(recoveredEvaluations, 1);
   const issueAfter = await Issue.findById(scenario.issue._id);
   assert.deepEqual(lifecycleState(issueAfter), beforeState);
   assert.equal(issueAfter.intervention_count, issueBefore.intervention_count);

@@ -5,6 +5,7 @@ import {
   ISSUE_PROCESSING_RESULT_CLASSIFICATIONS,
   ISSUE_PROCESSING_STATUSES,
 } from "../domain/phase2Issue.domain.js";
+import { EVALUATION_LIMITS } from "../domain/phase4Evaluation.domain.js";
 
 const deliveryRecipientSchema = new mongoose.Schema(
   {
@@ -420,6 +421,91 @@ const reportRunContextSnapshotSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const evaluationWindowSchema = new mongoose.Schema(
+  {
+    start: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
+    end: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
+  },
+  { _id: false, strict: "throw" }
+);
+
+const boundedEvaluationArray = (maximum, label) => ({
+  validator: (value) => Array.isArray(value) && value.length <= maximum,
+  message: `${label} exceed the allowed limit.`,
+});
+
+const evaluationCampaignSnapshotSchema = new mongoose.Schema(
+  {
+    campaign_id: { type: String, trim: true, required: true, maxlength: 256 },
+    campaign_name: { type: String, trim: true, default: null, maxlength: 512 },
+    provenance: { type: String, enum: ["scheduled_window", "scheduled_manual_window", "historical_fallback"], required: true },
+    spend: { type: Number, min: 0, required: true },
+    impressions: { type: Number, min: 0, required: true },
+    clicks: { type: Number, min: 0, required: true },
+    conversions: { type: Number, min: 0, required: true },
+    conversion_value: { type: Number, min: 0, default: null },
+    ctr: { type: Number, min: 0, default: null },
+    cpc: { type: Number, min: 0, default: null },
+    cpm: { type: Number, min: 0, default: null },
+    cpa: { type: Number, min: 0, default: null },
+    roas: { type: Number, min: 0, default: null },
+    conversion_rate: { type: Number, min: 0, default: null },
+    row_count: { type: Number, min: 0, required: true },
+    source_level: { type: String, enum: ["ad", "campaign"], required: true },
+    completeness: { type: String, enum: ["complete", "zero_delivery"], required: true },
+    warnings: {
+      type: [{ type: String, maxlength: 128 }],
+      default: [],
+      validate: boundedEvaluationArray(EVALUATION_LIMITS.warnings, "Campaign evidence warnings"),
+    },
+  },
+  { _id: false, strict: "throw" }
+);
+
+const reportRunEvaluationEvidenceSchema = new mongoose.Schema(
+  {
+    version: { type: Number, enum: [1], required: true },
+    captured_at: { type: Date, required: true },
+    normalization_version: { type: Number, enum: [1], required: true },
+    timezone: { type: String, trim: true, default: null, maxlength: 128 },
+    currency: { type: String, trim: true, default: null, maxlength: 3 },
+    attribution_windows: {
+      type: [{ type: String, maxlength: 64 }],
+      default: [],
+      validate: boundedEvaluationArray(EVALUATION_LIMITS.attributionWindows, "ReportRun attribution windows"),
+    },
+    meta_binding_revision: { type: Number, min: 0, default: null },
+    comparison_mode: { type: String, enum: ["scheduled_window", "historical_fallback", null], default: null },
+    cadence: { type: String, enum: ["daily", "weekly", "monthly", null], default: null },
+    current_window: { type: evaluationWindowSchema, default: null },
+    previous_window: { type: evaluationWindowSchema, default: null },
+    campaign_snapshots: {
+      type: [evaluationCampaignSnapshotSchema],
+      default: [],
+      validate: boundedEvaluationArray(EVALUATION_LIMITS.campaignSnapshots, "ReportRun campaign snapshots"),
+    },
+    completeness: { type: String, enum: ["complete", "ineligible"], required: true },
+    warnings: {
+      type: [{ type: String, maxlength: 128 }],
+      default: [],
+      validate: boundedEvaluationArray(EVALUATION_LIMITS.warnings, "ReportRun evidence warnings"),
+    },
+  },
+  { _id: false, strict: "throw" }
+);
+
+const evaluationProcessingSchema = new mongoose.Schema(
+  {
+    status: { type: String, enum: ["pending", "completed", "skipped"], required: true },
+    cursor: { type: mongoose.Schema.Types.ObjectId, ref: "Intervention", default: null },
+    processed_count: { type: Number, min: 0, default: 0 },
+    attempt_count: { type: Number, min: 0, default: 0 },
+    last_attempt_at: { type: Date, default: null },
+    completed_at: { type: Date, default: null },
+  },
+  { _id: false, strict: "throw" }
+);
+
 const reportRunSchema = new mongoose.Schema(
   {
     agency_id: {
@@ -526,6 +612,14 @@ const reportRunSchema = new mongoose.Schema(
     },
     issue_processing: {
       type: issueProcessingSchema,
+      default: undefined,
+    },
+    evaluation_evidence: {
+      type: reportRunEvaluationEvidenceSchema,
+      default: undefined,
+    },
+    evaluation_processing: {
+      type: evaluationProcessingSchema,
       default: undefined,
     },
     completed_at: {

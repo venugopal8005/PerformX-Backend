@@ -29,6 +29,8 @@ import {
 import { assertExecutionIntegrityReady } from "./executionIntegrityIndexes.service.js";
 import { processReportRunIssues } from "./issueMatching.service.js";
 import { buildReportRunContextSnapshot } from "./historicalContextSnapshot.service.js";
+import { buildReportRunEvaluationEvidence } from "./reportEvaluationEvidence.service.js";
+import { processReportRunEvaluations, runEvaluationMaintenance } from "./evaluation.service.js";
 import {
   isArchivedDocument,
   withOperationalReportScope,
@@ -419,12 +421,14 @@ const buildGeneratedRunFields = ({
   comparison,
   preparedDelivery,
   metaAdAccount,
+  evaluationEvidence,
   now,
 }) => ({
   meta_ad_account_id: metaAdAccount._id,
   meta_account_external_id_snapshot: metaAdAccount.ad_account_id,
   meta_account_name_snapshot: metaAdAccount.name,
   monitored_campaigns: report.monitored_campaigns || [],
+  evaluation_evidence: evaluationEvidence,
   status: mapRunStatus(narrative),
   summary: buildReportSummary(narrative),
   key_delta: narrative.keyDelta || null,
@@ -583,9 +587,15 @@ export const processReportRunIssuesBeforeDelivery = async ({
   metadata,
   beforeDelivery = async () => {},
   issueProcessor = processReportRunIssues,
+  evaluationProcessor = processReportRunEvaluations,
   deliveryProcessor = processPersistedReportDelivery,
 } = {}) => {
   await issueProcessor({ reportRunId });
+  try {
+    await evaluationProcessor({ reportRunId });
+  } catch (error) {
+    logError(SCOPE, "EVALUATION_PROCESSING_ISOLATED_FAILURE", error, { reportRunId });
+  }
   await beforeDelivery();
   return deliveryProcessor({ reportRunId, allowFailedRetry, metadata });
 };
@@ -882,6 +892,17 @@ export const runReport = async (reportId, options = {}) => {
         generatedAt,
         reportUrl: `${clientOrigin}/reports/${report._id}`,
       });
+      const evaluationEvidence = buildReportRunEvaluationEvidenceFromInsights({
+        currentInsights,
+        report,
+        period: comparison.period,
+        metaAdAccount,
+        metaBindingRevision: reportRun.meta_binding_revision_snapshot,
+        comparisonMode: comparison.mode,
+        source,
+        capturedAt: now,
+        fallbackCurrency: options.currency || null,
+      });
 
       heartbeat.assertOwned();
       failureStage = "performance_evidence";
@@ -894,6 +915,7 @@ export const runReport = async (reportId, options = {}) => {
             comparison,
             preparedDelivery,
             metaAdAccount,
+            evaluationEvidence,
             now,
         }),
       });
@@ -941,6 +963,8 @@ export const runReport = async (reportId, options = {}) => {
         reportName: report.name,
         clientName,
       },
+      issueProcessor: options.issueProcessor || processReportRunIssues,
+      evaluationProcessor: options.evaluationProcessor || processReportRunEvaluations,
       beforeDelivery: async () => {
         reportRun = await ReportRun.findById(reportRun._id);
         const renewed = await renewReportExecutionLease({
@@ -1084,6 +1108,18 @@ export const runDueReports = async (options = {}) => {
     }
   }
 
+  if (options.evaluationMaintenanceProcessor || ReportRun.db?.readyState === 1) {
+    try {
+      await (options.evaluationMaintenanceProcessor || runEvaluationMaintenance)({
+        agencyId: options.agencyId || null,
+      });
+    } catch (error) {
+      logError(SCOPE, "EVALUATION_MAINTENANCE_ISOLATED_FAILURE", error, {
+        agencyId: options.agencyId || null,
+      });
+    }
+  }
+
   return {
     ranCount: results.filter((result) => !result.skipped).length,
     checkedCount: reports.length,
@@ -1094,3 +1130,26 @@ export const runDueReports = async (options = {}) => {
 export const getRecentReportActivities = (reportId) => {
   return Activity.find({ report_id: reportId }).sort({ createdAt: -1 }).limit(20);
 };
+export const buildReportRunEvaluationEvidenceFromInsights = ({
+  currentInsights,
+  report,
+  period,
+  metaAdAccount,
+  metaBindingRevision,
+  comparisonMode,
+  source,
+  capturedAt,
+  fallbackCurrency = null,
+} = {}) => buildReportRunEvaluationEvidence({
+  currentRows: currentInsights?.rows,
+  monitoredCampaigns: report?.monitored_campaigns,
+  period,
+  timezone: report?.schedule?.timezone || null,
+  currency: metaAdAccount?.currency || fallbackCurrency,
+  attributionContext: currentInsights?.attributionContext,
+  metaBindingRevision,
+  comparisonMode,
+  cadence: report?.type,
+  triggerType: source,
+  capturedAt,
+});

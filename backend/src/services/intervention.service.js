@@ -38,6 +38,12 @@ import {
 } from "./interventionSnapshots.service.js";
 import { assertPhase3InterventionIntegrityReady } from "./phase3InterventionIndexes.service.js";
 import { runRequiredTransaction } from "./requiredTransaction.service.js";
+import {
+  normalizeEvaluationIntent,
+  resolveEvaluationIntent,
+} from "../domain/phase4Evaluation.domain.js";
+import { processInterventionEvaluation } from "./evaluation.service.js";
+import { logError } from "../utils/controllerLogger.js";
 
 const defaultModels = {
   Activity,
@@ -50,6 +56,18 @@ const defaultModels = {
   Signal,
   User,
   WorkspaceMember,
+};
+
+const processEvaluationSafely = async (evaluationProcessor, options) => {
+  try {
+    return await evaluationProcessor(options);
+  } catch (error) {
+    logError("Interventions", "EVALUATION_PROCESSING_ISOLATED_FAILURE", error, {
+      interventionId: options.interventionId,
+      triggerType: options.triggerType,
+    });
+    return null;
+  }
 };
 
 const sameId = (left, right) => Boolean(left && right && String(left) === String(right));
@@ -86,6 +104,7 @@ const canonicalCreateRequest = (input = {}) => {
     idempotencyKey: normalizeInterventionIdempotencyKey(input.idempotencyKey),
     expectedIssueRevision: validRevision(input.expectedIssueRevision, "expectedIssueRevision"),
     performedBy,
+    evaluationIntent: normalizeEvaluationIntent(input.evaluationIntent, { allowMissing: true }),
     ...action,
     performedAt: validDateInput(input.performedAt),
   };
@@ -108,6 +127,7 @@ const canonicalCancellationRequest = (input = {}) => ({
 
 const requestPayloadForHash = (request) => ({
   ...request,
+  evaluationIntent: request.evaluationIntent || undefined,
   performedAt: request.performedAt?.toISOString?.() || request.performedAt,
   idempotencyKey: undefined,
   expectedIssueRevision:
@@ -454,6 +474,7 @@ export const createIntervention = async ({
   Models = defaultModels,
   transactionRunner = runRequiredTransaction,
   assertIntegrityReady = assertPhase3InterventionIntegrityReady,
+  evaluationProcessor = processInterventionEvaluation,
 } = {}) => {
   assertIntegrityReady();
   const recorderId = userIdFrom(recorderInput);
@@ -468,11 +489,14 @@ export const createIntervention = async ({
     await existingByKey({ agencyId, key: request.idempotencyKey, Models }),
     requestHash
   );
-  if (replay) return replay;
+  if (replay) {
+    await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: replay.intervention._id, triggerType: "intervention_recorded", actor: recorderInput, Models });
+    return replay;
+  }
   const issue = await preliminaryIssue({ agencyId, issueId, Models });
 
   try {
-    return await withClientLease({
+    const outcome = await withClientLease({
       agencyId,
       clientId: issue.client_id,
       Models,
@@ -509,6 +533,12 @@ export const createIntervention = async ({
               now,
             });
             const snapshots = buildInterventionEvidenceSnapshots({ ...context, capturedAt: now });
+            const evaluationIntent = resolveEvaluationIntent({
+              explicitIntent: request.evaluationIntent,
+              actionType: request.actionType,
+              issue: context.issue,
+              signal: context.signal,
+            });
             const [intervention] = await Models.Intervention.create(
               [{
                 agency_id: agencyId,
@@ -533,6 +563,7 @@ export const createIntervention = async ({
                 scope_snapshot: snapshots.scopeSnapshot,
                 latest_signal_snapshot: snapshots.latestSignalSnapshot,
                 issue_fingerprint_snapshot: context.issue.fingerprint,
+                evaluation_intent: evaluationIntent,
                 status: "active",
                 idempotency_key: request.idempotencyKey,
                 request_hash: requestHash,
@@ -559,11 +590,16 @@ export const createIntervention = async ({
         });
       },
     });
+    await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: outcome.intervention._id, triggerType: "intervention_recorded", actor: recorderInput, Models });
+    return outcome;
   } catch (error) {
     if (error?.code !== 11000) throw error;
     const recovered = await existingByKey({ agencyId, key: request.idempotencyKey, Models });
     const result = replayOrConflict(recovered, requestHash);
-    if (result) return result;
+    if (result) {
+      await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: result.intervention._id, triggerType: "intervention_recorded", actor: recorderInput, Models });
+      return result;
+    }
     throw error;
   }
 };
@@ -588,6 +624,7 @@ export const correctIntervention = async ({
   Models = defaultModels,
   transactionRunner = runRequiredTransaction,
   assertIntegrityReady = assertPhase3InterventionIntegrityReady,
+  evaluationProcessor = processInterventionEvaluation,
 } = {}) => {
   assertIntegrityReady();
   const recorderId = userIdFrom(recorderInput);
@@ -602,11 +639,17 @@ export const correctIntervention = async ({
     await existingByKey({ agencyId, key: request.idempotencyKey, Models }),
     requestHash
   );
-  if (replay) return replay;
+  if (replay) {
+    if (replay.intervention.supersedes_intervention_id) {
+      await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: replay.intervention.supersedes_intervention_id, triggerType: "correction", actor: recorderInput, Models });
+    }
+    await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: replay.intervention._id, triggerType: "correction", actor: recorderInput, Models });
+    return replay;
+  }
   const original = await preliminaryIntervention({ agencyId, interventionId, Models });
 
   try {
-    return await withClientLease({
+    const outcome = await withClientLease({
       agencyId,
       clientId: original.client_id,
       Models,
@@ -673,6 +716,12 @@ export const correctIntervention = async ({
             if (!transitioned) {
               throw createInterventionError(INTERVENTION_ERROR.STALE_REVISION, "The Intervention changed during correction.", 409);
             }
+            const evaluationIntent = resolveEvaluationIntent({
+              explicitIntent: request.evaluationIntent,
+              actionType: request.actionType,
+              issue: context.issue,
+              signal: context.signal,
+            });
             const [successor] = await Models.Intervention.create(
               [{
                 _id: successorId,
@@ -698,6 +747,7 @@ export const correctIntervention = async ({
                 scope_snapshot: current.scope_snapshot,
                 latest_signal_snapshot: current.latest_signal_snapshot,
                 issue_fingerprint_snapshot: current.issue_fingerprint_snapshot,
+                evaluation_intent: evaluationIntent,
                 status: "active",
                 supersedes_intervention_id: current._id,
                 idempotency_key: request.idempotencyKey,
@@ -713,11 +763,21 @@ export const correctIntervention = async ({
         });
       },
     });
+    const predecessorId = outcome.supersededIntervention?._id || outcome.intervention.supersedes_intervention_id;
+    if (predecessorId) await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: predecessorId, triggerType: "correction", actor: recorderInput, Models });
+    await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: outcome.intervention._id, triggerType: "correction", actor: recorderInput, Models });
+    return outcome;
   } catch (error) {
     if (error?.code !== 11000) throw error;
     const recovered = await existingByKey({ agencyId, key: request.idempotencyKey, Models });
     const result = replayOrConflict(recovered, requestHash);
-    if (result) return result;
+    if (result) {
+      if (result.intervention.supersedes_intervention_id) {
+        await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: result.intervention.supersedes_intervention_id, triggerType: "correction", actor: recorderInput, Models });
+      }
+      await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: result.intervention._id, triggerType: "correction", actor: recorderInput, Models });
+      return result;
+    }
     throw createInterventionError(
       INTERVENTION_ERROR.INVALID_STATE,
       "This Intervention already has a correction.",
@@ -747,6 +807,7 @@ export const cancelIntervention = async ({
   Models = defaultModels,
   transactionRunner = runRequiredTransaction,
   assertIntegrityReady = assertPhase3InterventionIntegrityReady,
+  evaluationProcessor = processInterventionEvaluation,
 } = {}) => {
   assertIntegrityReady();
   const recorderId = userIdFrom(recorderInput);
@@ -762,11 +823,14 @@ export const cancelIntervention = async ({
     "cancellation.idempotency_key": request.idempotencyKey,
   });
   const replay = cancellationReplay(existingReplay, request.idempotencyKey, requestHash);
-  if (replay) return replay;
+  if (replay) {
+    await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: replay.intervention._id, triggerType: "cancellation", actor: recorderInput, Models });
+    return replay;
+  }
   const original = await preliminaryIntervention({ agencyId, interventionId, Models });
 
   try {
-    return await withClientLease({
+    const outcome = await withClientLease({
       agencyId,
       clientId: original.client_id,
       Models,
@@ -839,6 +903,8 @@ export const cancelIntervention = async ({
         });
       },
     });
+    await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: outcome.intervention._id, triggerType: "cancellation", actor: recorderInput, Models });
+    return outcome;
   } catch (error) {
     if (error?.code !== 11000) throw error;
     const recovered = await Models.Intervention.findOne({
@@ -846,7 +912,10 @@ export const cancelIntervention = async ({
       "cancellation.idempotency_key": request.idempotencyKey,
     });
     const result = cancellationReplay(recovered, request.idempotencyKey, requestHash);
-    if (result) return result;
+    if (result) {
+      await processEvaluationSafely(evaluationProcessor, { agencyId, interventionId: result.intervention._id, triggerType: "cancellation", actor: recorderInput, Models });
+      return result;
+    }
     throw error;
   }
 };

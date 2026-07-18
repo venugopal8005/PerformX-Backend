@@ -16,10 +16,13 @@ import workspacesRouter from "./routes/workspaces.routes.js";
 import reportRunsRouter from "./routes/reportRuns.routes.js";
 import issuesRouter from "./routes/issues.routes.js";
 import interventionsRouter from "./routes/interventions.routes.js";
+import evaluationsRouter from "./routes/evaluations.routes.js";
 import { startN8NScheduler } from "./jobs/n8nScheduler.js";
 import {
   Activity,
   Intervention,
+  Evaluation,
+  EvaluationSeries,
   Issue,
   ReportRun,
   Signal,
@@ -30,6 +33,7 @@ import {
 import { initializeExecutionIntegrity } from "./services/executionIntegrityIndexes.service.js";
 import { initializePhase2IssueIntegrity } from "./services/phase2IssueIndexes.service.js";
 import { initializePhase3InterventionIntegrity } from "./services/phase3InterventionIndexes.service.js";
+import { initializePhase4EvaluationIntegrity } from "./services/phase4EvaluationIndexes.service.js";
 import { connectMongooseWithIndexManagementDisabled } from "./services/mongooseConnection.service.js";
 import { logAction, logError } from "./utils/controllerLogger.js";
 
@@ -56,6 +60,7 @@ app.use("/api/workspaces", workspacesRouter);
 app.use("/api/report-runs", reportRunsRouter);
 app.use("/api/issues", issuesRouter);
 app.use("/api/interventions", interventionsRouter);
+app.use("/api/evaluations", evaluationsRouter);
 
 // db
 try {
@@ -92,6 +97,18 @@ try {
   });
 } catch (error) {
   phase3InterventionIntegrity = { ready: false, error };
+}
+
+let phase4EvaluationIntegrity;
+try {
+  phase4EvaluationIntegrity = await initializePhase4EvaluationIntegrity({
+    collections: {
+      evaluations: Evaluation.collection,
+      evaluation_series: EvaluationSeries.collection,
+    },
+  });
+} catch (error) {
+  phase4EvaluationIntegrity = { ready: false, error };
 }
 
 if (executionIntegrity.ready) {
@@ -155,6 +172,14 @@ if (phase3InterventionIntegrity.ready) {
     "STARTUP_VERIFICATION_FAILED",
     phase3InterventionIntegrity.error || new Error("Required Phase 3 Intervention indexes are absent.")
   );
+}
+
+if (phase4EvaluationIntegrity.ready) {
+  logAction("Phase4EvaluationIntegrity", "STARTUP_VERIFIED", {
+    indexes: phase4EvaluationIntegrity.results.map((result) => ({ collection: result.collection, name: result.expectedName, status: result.classification })),
+  }, "green");
+} else {
+  logError("Phase4EvaluationIntegrity", "STARTUP_VERIFICATION_FAILED", phase4EvaluationIntegrity.error || new Error("Required Phase 4 Evaluation indexes are absent."));
 }
 
 if (executionIntegrity.ready && phase2IssueIntegrity.ready) {
