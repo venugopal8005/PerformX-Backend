@@ -105,6 +105,28 @@ test("transaction persists a ready Evaluation, advances Series, and writes bound
   assert.equal(series.next_sequence, 2);
   assert.equal(await mongoose.connection.collection("activities").countDocuments({ type: "evaluation_created" }), 1);
 });
+
+test("Evaluation creation and Series advancement remain committed when Review projection fails", async () => {
+  const ids = await seed();
+  let reviewCalls = 0;
+  const result = await processInterventionEvaluation({
+    agencyId: ids.agency,
+    interventionId: ids.intervention,
+    triggerType: "report_run",
+    sourceReportRunId: ids.followRun,
+    reviewProcessor: async () => {
+      reviewCalls += 1;
+      throw Object.assign(new Error("injected Review projection failure"), { code: "REVIEW_TEST_FAILURE" });
+    },
+  });
+  const series = await EvaluationSeries.findOne({ agency_id: ids.agency, intervention_id: ids.intervention });
+
+  assert.equal(result.created, true);
+  assert.equal(reviewCalls, 1);
+  assert.equal(await Evaluation.countDocuments({ intervention_id: ids.intervention }), 1);
+  assert.equal(String(series.current_evaluation_id), String(result.evaluation._id));
+  assert.equal(series.next_sequence, 2);
+});
 test("same evidence is a no-op and preserves one immutable version", async () => {
   const ids = await seed();
   const first = await processInterventionEvaluation({ agencyId: ids.agency, interventionId: ids.intervention, triggerType: "report_run", sourceReportRunId: ids.followRun });

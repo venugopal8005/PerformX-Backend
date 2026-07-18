@@ -17,6 +17,7 @@ import reportRunsRouter from "./routes/reportRuns.routes.js";
 import issuesRouter from "./routes/issues.routes.js";
 import interventionsRouter from "./routes/interventions.routes.js";
 import evaluationsRouter from "./routes/evaluations.routes.js";
+import reviewRouter from "./routes/review.routes.js";
 import { startN8NScheduler } from "./jobs/n8nScheduler.js";
 import {
   Activity,
@@ -25,6 +26,9 @@ import {
   EvaluationSeries,
   Issue,
   ReportRun,
+  ReviewAction,
+  ReviewItem,
+  ReviewReconciliationCheckpoint,
   Signal,
   WorkspaceInvite,
   WorkspaceMember,
@@ -34,6 +38,7 @@ import { initializeExecutionIntegrity } from "./services/executionIntegrityIndex
 import { initializePhase2IssueIntegrity } from "./services/phase2IssueIndexes.service.js";
 import { initializePhase3InterventionIntegrity } from "./services/phase3InterventionIndexes.service.js";
 import { initializePhase4EvaluationIntegrity } from "./services/phase4EvaluationIndexes.service.js";
+import { initializePhase5ReviewIntegrity } from "./services/phase5ReviewIndexes.service.js";
 import { connectMongooseWithIndexManagementDisabled } from "./services/mongooseConnection.service.js";
 import { logAction, logError } from "./utils/controllerLogger.js";
 
@@ -61,6 +66,7 @@ app.use("/api/report-runs", reportRunsRouter);
 app.use("/api/issues", issuesRouter);
 app.use("/api/interventions", interventionsRouter);
 app.use("/api/evaluations", evaluationsRouter);
+app.use("/api/review-items", reviewRouter);
 
 // db
 try {
@@ -109,6 +115,19 @@ try {
   });
 } catch (error) {
   phase4EvaluationIntegrity = { ready: false, error };
+}
+
+let phase5ReviewIntegrity;
+try {
+  phase5ReviewIntegrity = await initializePhase5ReviewIntegrity({
+    collections: {
+      review_items: ReviewItem.collection,
+      review_actions: ReviewAction.collection,
+      review_reconciliation_checkpoints: ReviewReconciliationCheckpoint.collection,
+    },
+  });
+} catch (error) {
+  phase5ReviewIntegrity = { ready: false, error };
 }
 
 if (executionIntegrity.ready) {
@@ -180,6 +199,14 @@ if (phase4EvaluationIntegrity.ready) {
   }, "green");
 } else {
   logError("Phase4EvaluationIntegrity", "STARTUP_VERIFICATION_FAILED", phase4EvaluationIntegrity.error || new Error("Required Phase 4 Evaluation indexes are absent."));
+}
+
+if (phase5ReviewIntegrity.ready) {
+  logAction("Phase5ReviewIntegrity", "STARTUP_VERIFIED", {
+    indexes: phase5ReviewIntegrity.results.map((result) => ({ collection: result.collection, name: result.expectedName, status: result.classification })),
+  }, "green");
+} else {
+  logError("Phase5ReviewIntegrity", "STARTUP_VERIFICATION_FAILED", phase5ReviewIntegrity.error || new Error("Required Phase 5 Review indexes are absent."));
 }
 
 if (executionIntegrity.ready && phase2IssueIntegrity.ready) {

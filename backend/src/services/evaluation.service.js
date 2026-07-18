@@ -57,6 +57,7 @@ import { runRequiredTransaction } from "./requiredTransaction.service.js";
 import { assertPhase4EvaluationIntegrityReady } from "./phase4EvaluationIndexes.service.js";
 import { recordActivity } from "./activityRecorder.service.js";
 import { logError } from "../utils/controllerLogger.js";
+import { projectEvaluationReview, projectSourceSafely } from "./reviewProjection.service.js";
 
 const defaultModels = { Activity, Client, Evaluation, EvaluationReconciliationCheckpoint, EvaluationSeries, Intervention, Issue, MetaAdAccount, MetaConnection, Report, ReportRun, WorkspaceMember };
 const sameId = (left, right) => Boolean(left && right && String(left) === String(right));
@@ -350,6 +351,7 @@ export const processInterventionEvaluation = async ({
   ruleVersion = EVALUATION_RULE_VERSION,
   transactionStageHook = null,
   leaseClock = () => new Date(),
+  reviewProcessor = projectEvaluationReview,
 } = {}) => {
   if (!EVALUATION_TRIGGER_TYPES.includes(triggerType)) throw createEvaluationError(EVALUATION_ERROR.VALIDATION, "Evaluation trigger is invalid.", 400);
   if (!Number.isSafeInteger(ruleVersion) || ruleVersion < 1) throw createEvaluationError(EVALUATION_ERROR.VALIDATION, "Evaluation rule version is invalid.", 400);
@@ -506,11 +508,17 @@ export const processInterventionEvaluation = async ({
         return { evaluation, created: true, noChange: false };
       },
     });
+    const series = await Models.EvaluationSeries.findOne({ agency_id: agencyId, intervention_id: preliminary._id }).select("_id").lean();
+    if (series) await projectSourceSafely(reviewProcessor, { agencyId, evaluationSeriesId: series._id, now }, { operation: "evaluation_post_commit" });
     return result;
   } catch (error) {
     if (error?.code !== 11000) throw error;
     const winner = await recoverApprovedDuplicate({ error, attempted: attemptedDuplicateSemantics, agencyId, interventionId: preliminary._id, Models });
-    if (winner) return { evaluation: winner, created: false, noChange: true, duplicateRecovered: true };
+    if (winner) {
+      const series = await Models.EvaluationSeries.findOne({ agency_id: agencyId, intervention_id: preliminary._id }).select("_id").lean();
+      if (series) await projectSourceSafely(reviewProcessor, { agencyId, evaluationSeriesId: series._id, now }, { operation: "evaluation_duplicate_post_commit" });
+      return { evaluation: winner, created: false, noChange: true, duplicateRecovered: true };
+    }
     const conflictIndex = duplicateIndexName(error);
     const strictIntegrityConflict = conflictIndex === "phase4_evaluations_intervention_history" ||
       conflictIndex === "phase4_evaluations_supersedes_unique" ||

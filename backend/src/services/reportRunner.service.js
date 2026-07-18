@@ -31,6 +31,7 @@ import { processReportRunIssues } from "./issueMatching.service.js";
 import { buildReportRunContextSnapshot } from "./historicalContextSnapshot.service.js";
 import { buildReportRunEvaluationEvidence } from "./reportEvaluationEvidence.service.js";
 import { processReportRunEvaluations, runEvaluationMaintenance } from "./evaluation.service.js";
+import { runPhase5ReviewMaintenance } from "./reviewReconciliation.service.js";
 import {
   isArchivedDocument,
   withOperationalReportScope,
@@ -1115,6 +1116,15 @@ export const runDueReports = async (options = {}) => {
       });
     } catch (error) {
       logError(SCOPE, "EVALUATION_MAINTENANCE_ISOLATED_FAILURE", error, {
+        agencyId: options.agencyId || null,
+      });
+    }
+    try {
+      await (options.reviewMaintenanceProcessor || runPhase5ReviewMaintenance)({
+        agencyId: options.agencyId || null,
+      });
+    } catch (error) {
+      logError(SCOPE, "REVIEW_MAINTENANCE_ISOLATED_FAILURE", error, {
         agencyId: options.agencyId || null,
       });
     }

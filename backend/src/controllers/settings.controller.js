@@ -39,6 +39,7 @@ import {
   withOperationalClientScope,
   withOperationalReportScope,
 } from "../utils/archiveScope.js";
+import { closeReviewItemsForAuthority, projectSourceSafely } from "../services/reviewProjection.service.js";
 
 const SCOPE = "Settings";
 const GRAPH_VERSION = "v19.0";
@@ -1897,6 +1898,18 @@ export const assignMetaAdAccount = async (req, res) => {
       },
     }).catch(() => null);
 
+    let reviewBudget = 50;
+    const changedAccountIds = [account._id, ...existingClientAccounts.map((item) => item._id)];
+    for (const changedAccountId of changedAccountIds) {
+      if (reviewBudget <= 0) break;
+      const projected = await projectSourceSafely(
+        closeReviewItemsForAuthority,
+        { agencyId, accountId: changedAccountId, limit: reviewBudget, now: new Date() },
+        { operation: "meta_assignment_post_commit" }
+      );
+      reviewBudget -= Number(projected?.processed || 0);
+    }
+
     const populated = await MetaAdAccount.findById(account._id)
       .populate("client_id", "name status")
       .populate(
@@ -2038,6 +2051,12 @@ export const removeMetaAdAccount = async (req, res) => {
         },
         $inc: { binding_revision: 1 },
       }
+    );
+
+    await projectSourceSafely(
+      closeReviewItemsForAuthority,
+      { agencyId, accountId: account._id, limit: 50, now: new Date() },
+      { operation: "meta_account_remove_post_commit" }
     );
 
     return res.json({

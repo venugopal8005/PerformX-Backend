@@ -195,6 +195,7 @@ beforeEach(async () => {
     ReportRun.deleteMany({}),
     Signal.deleteMany({}),
     User.deleteMany({}),
+    mongoose.connection.collection("review_items").deleteMany({}),
   ]);
 });
 
@@ -218,6 +219,23 @@ const requestCampaigns = async ({
   );
   return res;
 };
+
+test("Meta account reassignment remains committed with more than fifty deferred Review candidates", async () => {
+  const scenario = await createScenario({ suffix: "phase5-review-reassignment" });
+  await mongoose.connection.collection("review_items").insertMany(Array.from({ length: 51 }, () => ({
+    _id: id(),
+    agency_id: scenario.agency._id,
+    client_id: scenario.clientA._id,
+    meta_ad_account_id: scenario.account._id,
+    state: "open",
+  })));
+
+  const result = await assign({ scenario, clientId: scenario.clientB._id });
+
+  assert.equal(result.statusCode, 200);
+  assert.equal(String((await MetaAdAccount.findById(scenario.account._id)).client_id), String(scenario.clientB._id));
+  assert.equal(await mongoose.connection.collection("review_items").countDocuments({ meta_ad_account_id: scenario.account._id }), 51);
+});
 
 test("validated Meta binding resolves string IDs against persisted ObjectIds", async () => {
   const scenario = await createScenario({ suffix: "binding-string-ids" });

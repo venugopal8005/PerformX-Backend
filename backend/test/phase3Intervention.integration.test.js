@@ -337,6 +337,86 @@ test("creation records human evidence transactionally without changing Issue lif
   assert.equal(await Activity.countDocuments({ type: "intervention_recorded" }), 1);
 });
 
+test("Intervention create, correct, and cancel remain committed when Review projection fails", async () => {
+  const scenario = await createScenario();
+  let reviewCalls = 0;
+  const reviewProcessor = async () => {
+    reviewCalls += 1;
+    throw Object.assign(new Error("injected Review projection failure"), { code: "REVIEW_TEST_FAILURE" });
+  };
+  const evaluationProcessor = async () => ({ skipped: true });
+  const created = await createIntervention({
+    agencyId: scenario.agency._id,
+    recorder: { id: scenario.member._id },
+    issueId: scenario.issue._id,
+    input: createInput(),
+    now,
+    evaluationProcessor,
+    reviewProcessor,
+  });
+  const corrected = await correctIntervention({
+    agencyId: scenario.agency._id,
+    recorder: { id: scenario.owner._id },
+    interventionId: created.intervention._id,
+    input: {
+      idempotencyKey: `phase5-isolated-correction-${sequence}-123456`,
+      expectedRevision: 0,
+      actionType: "monitor_only",
+      actionPayload: {},
+      reason: "Correct the operational record",
+      performedAt: "2026-07-17T11:00:00.000Z",
+    },
+    now: new Date(now.getTime() + 1000),
+    evaluationProcessor,
+    reviewProcessor,
+  });
+  const cancelled = await cancelIntervention({
+    agencyId: scenario.agency._id,
+    recorder: { id: scenario.owner._id },
+    interventionId: corrected.intervention._id,
+    input: {
+      idempotencyKey: `phase5-isolated-cancel-${sequence}-123456`,
+      expectedRevision: 0,
+      reason: "Cancel the corrected record",
+    },
+    now: new Date(now.getTime() + 2000),
+    evaluationProcessor,
+    reviewProcessor,
+  });
+
+  assert.equal(reviewCalls, 3);
+  assert.equal((await Intervention.findById(created.intervention._id)).status, "superseded");
+  assert.equal((await Intervention.findById(corrected.intervention._id)).status, "cancelled");
+  assert.equal(cancelled.intervention.status, "cancelled");
+  assert.equal(await Activity.countDocuments({ type: "intervention_recorded" }), 1);
+  assert.equal(await Activity.countDocuments({ type: "intervention_corrected" }), 1);
+  assert.equal(await Activity.countDocuments({ type: "intervention_cancelled" }), 1);
+});
+
+test("Client archive remains committed with more than fifty Review candidates when projection fails", async () => {
+  const scenario = await createScenario();
+  await mongoose.connection.collection("review_items").insertMany(Array.from({ length: 51 }, () => ({
+    _id: objectId(), agency_id: scenario.agency._id, client_id: scenario.client._id, state: "open",
+  })));
+  let reviewCalls = 0;
+  const result = await archiveClientLifecycle({
+    agencyId: scenario.agency._id,
+    clientId: scenario.client._id,
+    userId: scenario.owner._id,
+    now,
+    reviewAuthorityProcessor: async ({ limit }) => {
+      reviewCalls += 1;
+      assert.equal(limit, 50);
+      assert.equal(await mongoose.connection.collection("review_items").countDocuments({ client_id: scenario.client._id }), 51);
+      throw Object.assign(new Error("injected bounded Review authority failure"), { code: "REVIEW_TEST_FAILURE" });
+    },
+  });
+
+  assert.equal(result.outcome, "archived");
+  assert.equal(reviewCalls, 1);
+  assert.equal((await Client.findById(scenario.client._id)).is_archived, true);
+});
+
 test("Intervention model blocks general, nested, replacement, pipeline, and forged lifecycle query mutations", async () => {
   const scenario = await createScenario();
   const created = await createIntervention({

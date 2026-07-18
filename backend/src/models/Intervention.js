@@ -198,6 +198,17 @@ const cancellationSchema = new mongoose.Schema(
   { _id: false, strict: "throw" }
 );
 
+const reviewOriginSchema = new mongoose.Schema(
+  {
+    version: { type: Number, enum: [1], required: true, immutable: true },
+    review_item_id: { type: mongoose.Schema.Types.ObjectId, ref: "ReviewItem", required: true, immutable: true },
+    review_item_type: { type: String, enum: ["issue_review", "evaluation_review"], required: true, immutable: true },
+    review_generation: { type: Number, min: 1, required: true, immutable: true },
+    review_source_revision: { type: Number, min: 0, required: true, immutable: true },
+  },
+  { _id: false, strict: "throw" }
+);
+
 const interventionSchema = new mongoose.Schema(
   {
     agency_id: { type: mongoose.Schema.Types.ObjectId, ref: "Agency", required: true, immutable: true },
@@ -223,6 +234,7 @@ const interventionSchema = new mongoose.Schema(
     latest_signal_snapshot: { type: signalSnapshotSchema, required: true, immutable: true },
     issue_fingerprint_snapshot: { type: String, required: true, immutable: true, match: /^[a-f0-9]{64}$/ },
     evaluation_intent: { type: evaluationIntentSchema, default: undefined, immutable: true },
+    review_origin: { type: reviewOriginSchema, default: undefined, immutable: true, select: false },
     status: { type: String, enum: INTERVENTION_STATUSES, required: true, default: "active" },
     supersedes_intervention_id: { type: mongoose.Schema.Types.ObjectId, ref: "Intervention", default: null, immutable: true },
     superseded_by_intervention_id: { type: mongoose.Schema.Types.ObjectId, ref: "Intervention", default: null },

@@ -22,6 +22,7 @@ import {
   serializeIssueListItem,
   serializeIssueSignalOccurrence,
 } from "../utils/issueSerializers.js";
+import { getIssueTimeline as getIssueTimelineService } from "../services/issueTimeline.service.js";
 
 const invalidFilter = (message = "Issue filter is invalid.") => {
   const error = new Error(message);
@@ -144,5 +145,17 @@ export const getIssueSignals = async (req, res) => {
     });
   } catch (error) {
     return historyRequestError(res, error, "Failed to fetch Issue Signals.");
+  }
+};
+
+export const getIssueTimeline = async (req, res) => {
+  try {
+    const agencyId = req.user?.agencyId;
+    if (!agencyId) return res.status(401).json({ success: false, message: "Agency context missing from auth token" });
+    const result = await getIssueTimelineService({ agencyId, issueId: req.params.issueId, cursor: req.query.cursor, limit: req.query.limit });
+    return res.json({ success: true, timeline: result.entries, page: result.page });
+  } catch (error) {
+    if (["REVIEW_NOT_FOUND", "INVALID_TIMELINE_CURSOR", "REVIEW_VALIDATION_FAILED"].includes(error?.code)) return res.status(error.status || 400).json({ success: false, code: error.code, message: error.message });
+    return historyRequestError(res, error, "Failed to fetch Issue timeline.");
   }
 };

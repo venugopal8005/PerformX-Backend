@@ -655,6 +655,25 @@ test("retryable transaction failures retry without partial lineage", async () =>
   assert.equal(await Signal.countDocuments({ issue_id: { $type: "objectId" } }), 1);
 });
 
+test("Issue matching remains committed when Review projection fails", async () => {
+  const domain = await createDomain();
+  const run = await createRun(domain, { start: "2026-07-10" });
+  let reviewCalls = 0;
+  const result = await processReportRunIssues({
+    reportRunId: run._id,
+    reviewProcessor: async () => {
+      reviewCalls += 1;
+      throw Object.assign(new Error("injected Review projection failure"), { code: "REVIEW_TEST_FAILURE" });
+    },
+  });
+
+  assert.equal(result.classification, "created");
+  assert.equal(reviewCalls, 1);
+  assert.equal(await Issue.countDocuments({ agency_id: domain.agency._id }), 1);
+  assert.equal(await Signal.countDocuments({ report_run_id: run._id, issue_id: { $type: "objectId" } }), 1);
+  assert.equal((await ReportRun.findById(run._id)).issue_processing.status, "completed");
+});
+
 test("corrupted cross-owner Issue lineage fails closed before lifecycle mutation", async () => {
   const domain = await createDomain();
   await process(await createRun(domain, { start: "2026-07-10" }));

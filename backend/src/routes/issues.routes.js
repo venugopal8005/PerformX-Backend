@@ -5,6 +5,7 @@ import {
   getIssue,
   getIssues,
   getIssueSignals,
+  getIssueTimeline,
 } from "../controllers/issues.controller.js";
 import {
   createIssueIntervention,
@@ -18,6 +19,7 @@ issueRouter.get("/", protect, requireWorkspaceMember, getIssues);
 issueRouter.post("/:issueId/interventions", protect, requireWorkspaceMember, createIssueIntervention);
 issueRouter.get("/:issueId/interventions", protect, requireWorkspaceMember, getIssueInterventions);
 issueRouter.get("/:issueId/signals", protect, requireWorkspaceMember, getIssueSignals);
+issueRouter.get("/:issueId/timeline", protect, requireWorkspaceMember, getIssueTimeline);
 issueRouter.get("/:issueId", protect, requireWorkspaceMember, getIssue);
 
 export default issueRouter;

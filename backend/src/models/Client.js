@@ -15,6 +15,7 @@ const lifecycleLockSchema = new mongoose.Schema(
         "meta_assignment",
         "intervention_write",
         "evaluation_write",
+        "review_write",
       ],
       required: true,
     },

@@ -46,6 +46,7 @@ import {
   readPersistedMetaBindingRevision,
   requirePermittedWorkspaceConnection,
 } from "./metaAccountBinding.service.js";
+import { projectIssueReview, projectSourceSafely } from "./reviewProjection.service.js";
 
 const TERMINAL_PROCESSING_STATUSES = new Set([
   "completed",
@@ -964,6 +965,7 @@ export const processReportRunIssues = async ({
   now = new Date(),
   Models = defaultModels,
   transactionRunner = runRequiredTransaction,
+  reviewProcessor = projectIssueReview,
 } = {}) => {
   assertPhase2IssueIntegrityReady();
 
@@ -989,7 +991,12 @@ export const processReportRunIssues = async ({
   let lastError;
   for (let attempt = 1; attempt <= ISSUE_TRANSACTION_RETRY_COUNT; attempt += 1) {
     try {
-      return await runIssueMatchingTransaction({ reportRunId, token: claim.token, Models, now, transactionRunner });
+      const outcome = await runIssueMatchingTransaction({ reportRunId, token: claim.token, Models, now, transactionRunner });
+      const changed = outcome.issue ? [outcome.issue] : outcome.issues || [];
+      for (const issue of changed.slice(0, 50)) {
+        await projectSourceSafely(reviewProcessor, { agencyId: issue.agency_id, issueId: issue._id, classification: outcome.classification, now }, { operation: "issue_post_commit" });
+      }
+      return outcome;
     } catch (error) {
       lastError = error;
       if (!isRetryableTransactionError(error) || attempt === ISSUE_TRANSACTION_RETRY_COUNT) break;
