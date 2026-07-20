@@ -35,7 +35,7 @@ export const hasExactPhase5IndexOptions = (actual = {}, expected = {}) =>
   absent(actual.collation) && absent(actual.expireAfterSeconds) && absent(actual.wildcardProjection) && absentFalse(actual.background) &&
   absent(actual.storageEngine) && Object.keys(actual).every((field) => semantic.has(field));
 const readIndexes = async (collection) => {
-  try { return typeof collection?.listIndexes === "function" ? collection.listIndexes().toArray() : await collection.indexes(); }
+  try { return typeof collection?.listIndexes === "function" ? await collection.listIndexes().toArray() : await collection.indexes(); }
   catch (error) { if (error?.code === 26 || error?.codeName === "NamespaceNotFound") return []; throw error; }
 };
 export const classifyPhase5Index = (expected, indexes = []) => {
@@ -97,4 +97,3 @@ export const assertPhase5ReviewIntegrityReady = () => {
   if (readiness.ready) return true;
   throw Object.assign(new Error("Review services are temporarily unavailable."), { code: "REVIEW_INDEXES_NOT_READY", status: 503 });
 };
-

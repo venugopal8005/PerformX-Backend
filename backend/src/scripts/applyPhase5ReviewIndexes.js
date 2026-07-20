@@ -19,8 +19,8 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).
   try {
     const mode = parsePhase5ReviewIndexMode();
     await connectMongooseWithIndexManagementDisabled({ mongooseInstance: mongoose, uri: process.env.MONGO_URI });
-    await runPhase5ReviewIndexCommand({ mode, collections: { review_items: ReviewItem.collection, review_actions: ReviewAction.collection, review_reconciliation_checkpoints: ReviewReconciliationCheckpoint.collection } });
+    const result = await runPhase5ReviewIndexCommand({ mode, collections: { review_items: ReviewItem.collection, review_actions: ReviewAction.collection, review_reconciliation_checkpoints: ReviewReconciliationCheckpoint.collection } });
+    exitCode = result.results.some((item) => item.applicationRequired) ? 2 : 0;
   } catch (error) { exitCode = 1; console.error(error?.message || "Phase 5 Review index command failed."); }
   finally { await mongoose.disconnect().catch(() => undefined); process.exitCode = exitCode; }
 }
-

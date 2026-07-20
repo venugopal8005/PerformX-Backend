@@ -40,7 +40,7 @@ export const hasExactPhase4IndexOptions = (actual = {}, expected = {}) =>
 
 const readIndexes = async (collection) => {
   try {
-    return typeof collection?.listIndexes === "function" ? collection.listIndexes().toArray() : await collection.indexes();
+    return typeof collection?.listIndexes === "function" ? await collection.listIndexes().toArray() : await collection.indexes();
   } catch (error) {
     if (error?.code === 26 || error?.codeName === "NamespaceNotFound") return [];
     throw error;
@@ -132,4 +132,3 @@ export const assertPhase4EvaluationIntegrityReady = () => {
   error.status = 503;
   throw error;
 };
-
