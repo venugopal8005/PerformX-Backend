@@ -65,6 +65,51 @@ test("ReportRunner evidence boundary persists Insights attribution and no raw ro
   assert.equal("actions" in evidence.campaign_snapshots[0], false);
 });
 
+test("manual and scheduled ReportRunner paths preserve identical attribution evidence", () => {
+  const input = {
+    currentInsights: {
+      rows: [{
+        campaign_id: "c1",
+        spend: "20",
+        impressions: "1000",
+        clicks: "50",
+        actions: [{ action_type: "purchase", value: "4" }],
+        action_values: [{ action_type: "purchase", value: "60" }],
+      }],
+      attributionContext: {
+        windows: ["7d_click", "1d_view"],
+        source: "response_rows",
+        comparable: true,
+      },
+    },
+    report: {
+      type: "daily",
+      schedule: { timezone: "UTC" },
+      monitored_campaigns: [{ campaign_id: "c1", campaign_name: "Campaign" }],
+    },
+    period: {
+      current: { start: "2026-01-02", end: "2026-01-02" },
+      previous: { start: "2026-01-01", end: "2026-01-01" },
+    },
+    metaAdAccount: { currency: "USD" },
+    metaBindingRevision: 2,
+    comparisonMode: "scheduled_window",
+    capturedAt: new Date("2026-01-03T00:00:00Z"),
+  };
+  const scheduled = buildReportRunEvaluationEvidenceFromInsights({
+    ...input,
+    source: "scheduled",
+  });
+  const manual = buildReportRunEvaluationEvidenceFromInsights({
+    ...input,
+    source: "manual",
+  });
+
+  assert.deepEqual(manual.attribution_windows, scheduled.attribution_windows);
+  assert.equal(manual.campaign_snapshots[0].cpa, scheduled.campaign_snapshots[0].cpa);
+  assert.equal(manual.campaign_snapshots[0].roas, scheduled.campaign_snapshots[0].roas);
+});
+
 for (const failure of [
   "indexes unavailable",
   "transaction unavailable",

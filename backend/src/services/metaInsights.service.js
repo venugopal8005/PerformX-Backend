@@ -22,6 +22,21 @@ const META_INSIGHT_FIELDS = [
   "action_attribution_windows",
 ].join(",");
 
+const PURCHASE_ACTION_TYPES = [
+  "purchase",
+  "omni_purchase",
+  "offsite_conversion.fb_pixel_purchase",
+];
+const CONVERSION_ACTION_TYPES = [
+  "purchase",
+  "lead",
+  "complete_registration",
+  "submit_application",
+  "schedule_total",
+  "onsite_conversion.messaging_conversation_started_7d",
+  "offsite_conversion.fb_pixel_purchase",
+];
+
 const toNumber = (value) => {
   if (value === null || value === undefined || value === "") return 0;
   const parsed = Number(String(value).replace(/,/g, ""));
@@ -105,15 +120,7 @@ export const normalizeMetaInsightRow = (row = {}) => {
   const impressions = toNumber(row.impressions);
   const clicks = toNumber(row.clicks);
   const reach = toNumber(row.reach);
-  const conversions = sumActionValues(row.actions, [
-    "purchase",
-    "lead",
-    "complete_registration",
-    "submit_application",
-    "schedule_total",
-    "onsite_conversion.messaging_conversation_started_7d",
-    "offsite_conversion.fb_pixel_purchase",
-  ]);
+  const conversions = sumActionValues(row.actions, CONVERSION_ACTION_TYPES);
   const ctr = toNumber(row.ctr) || safeDivide(clicks * 100, impressions);
   const cpc = toNumber(row.cpc) || safeDivide(spend, clicks);
   const cpm = toNumber(row.cpm) || safeDivide(spend * 1000, impressions);
@@ -141,22 +148,27 @@ export const normalizeMetaInsightRow = (row = {}) => {
     roas: round(roas, 2),
     cpa: round(cpa, 2),
     conversionRate: round(safeDivide(conversions * 100, clicks), 2),
+    action_attribution_windows: normalizeAttributionWindows(
+      row.action_attribution_windows ?? row.attribution_windows
+    ),
   };
 };
 
 export const aggregateMetaMetrics = (rows = []) => {
-  const normalizedRows = rows.map(normalizeMetaInsightRow);
-  const totals = normalizedRows.reduce(
-    (acc, row) => {
-      acc.impressions += row.impressions;
-      acc.clicks += row.clicks;
-      acc.spend += row.spend;
-      acc.reach += row.reach;
-      acc.conversions += row.conversions;
-      if (row.roas > 0) {
-        acc.roasTotal += row.roas;
-        acc.roasCount += 1;
-      }
+  const totals = rows.reduce(
+    (acc, rawRow) => {
+      acc.impressions += toNumber(rawRow?.impressions);
+      acc.clicks += toNumber(rawRow?.clicks);
+      acc.spend += toNumber(rawRow?.spend);
+      acc.reach += toNumber(rawRow?.reach);
+      acc.conversions += sumActionValues(
+        rawRow?.actions,
+        CONVERSION_ACTION_TYPES
+      );
+      acc.conversionValue += sumActionValues(
+        rawRow?.action_values,
+        PURCHASE_ACTION_TYPES
+      );
       return acc;
     },
     {
@@ -165,8 +177,7 @@ export const aggregateMetaMetrics = (rows = []) => {
       spend: 0,
       reach: 0,
       conversions: 0,
-      roasTotal: 0,
-      roasCount: 0,
+      conversionValue: 0,
     }
   );
 
@@ -180,7 +191,7 @@ export const aggregateMetaMetrics = (rows = []) => {
     cpc: round(safeDivide(totals.spend, totals.clicks), 2),
     cpm: round(safeDivide(totals.spend * 1000, totals.impressions), 2),
     frequency: round(safeDivide(totals.impressions, totals.reach), 2),
-    roas: round(totals.roasCount ? totals.roasTotal / totals.roasCount : 0, 2),
+    roas: round(safeDivide(totals.conversionValue, totals.spend), 2),
     cpa: round(safeDivide(totals.spend, totals.conversions), 2),
     conversionRate: round(safeDivide(totals.conversions * 100, totals.clicks), 2),
   };

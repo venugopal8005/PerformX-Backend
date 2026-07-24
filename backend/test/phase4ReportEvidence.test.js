@@ -144,3 +144,14 @@ test("row attribution is normalized and conflicting rows fail conversion compara
   assert.ok(conflicting.warnings.includes("attribution_context_inconsistent"));
   assert.equal(conflicting.campaign_snapshots[0].ctr, 5);
 });
+test("missing row attribution is retained as non-comparable evidence", () => {
+  const evidence = buildReportRunEvaluationEvidence(base({
+    attributionWindows: null,
+    currentRows: [{ ...base().currentRows[0], action_attribution_windows: undefined }],
+  }));
+
+  assert.deepEqual(evidence.attribution_windows, []);
+  assert.ok(evidence.warnings.includes("attribution_context_unavailable"));
+  assert.equal(evidence.campaign_snapshots[0].cpa, 2);
+  assert.equal(evidence.campaign_snapshots[0].roas, 4);
+});
