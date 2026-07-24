@@ -17,6 +17,8 @@ test("service candidate becomes ready from exact baseline and follow-up evidence
   assert.equal(candidate.status, "ready");
   assert.equal(candidate.observed_result, "improved");
   assert.equal(candidate.evidence_completeness, "complete");
+  assert.equal(candidate.confidence_level, "medium");
+  assert.equal(candidate.threshold_snapshots[0].minimum_evidence.impressions, 100);
 });
 test("missing canonical follow-up persists awaiting state", () => {
   const candidate = compute({ runs: [run("2026-01-01", { ctr: 2 })], now: new Date("2026-01-04T00:00:00Z") });
@@ -26,6 +28,7 @@ test("missing canonical follow-up persists awaiting state", () => {
 test("expired canonical follow-up persists insufficient_data with precise timeout reason", () => {
   const candidate = compute({ runs: [run("2026-01-01", { ctr: 2 })], now: new Date("2026-01-20T00:00:00Z") });
   assert.equal(candidate.status, "insufficient_data");
+  assert.equal(candidate.confidence_level, "low");
   assert.deepEqual(candidate.reason_codes, ["follow_up_timeout"]);
   assert.match(candidate.summary, /insufficient persisted evidence/i);
 });
@@ -45,6 +48,8 @@ test("separate same-campaign action contaminates follow-up", () => {
   const candidate = compute({ related: [intervention(), separate] });
   assert.equal(candidate.status, "not_evaluable");
   assert.deepEqual(candidate.reason_codes, ["overlapping_intervention"]);
+  assert.equal(candidate.confidence_level, "unavailable");
+  assert.ok(candidate.confidence_factors.includes("overlapping_intervention"));
 });
 test("correction predecessor and successor collapse to one overlap chain", () => {
   const predecessor = intervention({ status: "superseded", superseded_by_intervention_id: id() });

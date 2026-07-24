@@ -30,6 +30,17 @@ export const INTERVENTION_ACTION_TYPES = Object.freeze([
   "other",
 ]);
 
+const NON_ACTIONABLE_INTERVENTION_TYPES = new Set([
+  "monitor_only",
+  "no_action",
+  "internal_note",
+]);
+
+export const isActionableIntervention = (intervention = {}) =>
+  intervention.status === "active" &&
+  INTERVENTION_ACTION_TYPES.includes(intervention.action_type) &&
+  !NON_ACTIONABLE_INTERVENTION_TYPES.has(intervention.action_type);
+
 export const INTERVENTION_ACTOR_PROVENANCE = Object.freeze([
   "workspace_member",
   "manual",

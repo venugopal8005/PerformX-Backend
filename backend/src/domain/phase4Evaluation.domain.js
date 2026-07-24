@@ -4,6 +4,31 @@ export const EVALUATION_SCHEMA_VERSION = 1;
 export const EVALUATION_RULE_VERSION = 1;
 export const EVALUATION_EVIDENCE_VERSION = 1;
 export const EVALUATION_NORMALIZATION_VERSION = 1;
+export const EVALUATION_CONFIDENCE_VERSION = 1;
+
+export const EVALUATION_CONFIDENCE_LEVELS = Object.freeze([
+  "high",
+  "medium",
+  "low",
+  "unavailable",
+]);
+
+export const EVALUATION_CONFIDENCE_FACTORS = Object.freeze([
+  "overlapping_intervention",
+  "insufficient_spend",
+  "insufficient_conversions",
+  "insufficient_volume",
+  "short_observation_window",
+  "missing_baseline_report_run",
+  "missing_follow_up_report_run",
+  "unstable_metric_direction",
+  "attribution_incompatible",
+  "incomplete_baseline_evidence",
+  "incomplete_follow_up_evidence",
+  "data_quality_failure",
+  "limited_observation_density",
+  "evaluation_invalidated",
+]);
 
 export const EVALUATION_STATUSES = Object.freeze([
   "awaiting_follow_up",
@@ -144,6 +169,7 @@ export const EVALUATION_REASON_CODES = Object.freeze([
 export const EVALUATION_LIMITS = Object.freeze({
   watchedMetrics: 6,
   reasonCodes: 16,
+  confidenceFactors: 16,
   warnings: 16,
   summary: 500,
   campaignName: 512,

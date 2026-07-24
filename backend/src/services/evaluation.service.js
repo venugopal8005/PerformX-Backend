@@ -16,9 +16,11 @@ import {
 } from "../models/index.js";
 import {
   EVALUATION_ERROR,
+  EVALUATION_CONFIDENCE_VERSION,
   EVALUATION_EVIDENCE_VERSION,
   EVALUATION_LIMITS,
   EVALUATION_NORMALIZATION_VERSION,
+  EVALUATION_METRIC_RULES,
   EVALUATION_PRIMARY_METRICS,
   EVALUATION_RULE_VERSION,
   EVALUATION_SCHEMA_VERSION,
@@ -28,7 +30,9 @@ import {
 } from "../domain/phase4Evaluation.domain.js";
 import {
   buildEvaluationSummary,
+  buildEvaluationThresholdSnapshots,
   buildEvidenceSnapshot,
+  calculateEvaluationConfidence,
   canonicalFollowUpWindow,
   classifyOverallResult,
   compareEvaluationMetric,
@@ -208,7 +212,7 @@ const effectiveIntent = (intervention) => intervention.evaluation_intent ? {
   rule_version: EVALUATION_RULE_VERSION,
 };
 
-const baseCandidate = ({ intervention, triggerType, sourceReportRunId, intent, ruleVersion, now }) => ({
+const baseCandidate = ({ intervention, triggerType, sourceReportRunId, intent, ruleVersion, metricRules, now }) => ({
   agency_id: intervention.agency_id,
   client_id: intervention.client_id,
   issue_id: intervention.issue_id,
@@ -229,7 +233,12 @@ const baseCandidate = ({ intervention, triggerType, sourceReportRunId, intent, r
   baseline: null,
   follow_up: null,
   metric_results: [],
+  threshold_snapshots: buildEvaluationThresholdSnapshots({ metrics: intent.watched_metrics, rules: metricRules }),
   observed_result: null,
+  confidence_level: "unavailable",
+  confidence_score: null,
+  confidence_factors: [],
+  confidence_version: EVALUATION_CONFIDENCE_VERSION,
   interpretability: "not_interpretable",
   reason_codes: [],
   overlap_intervention_ids: [],
@@ -240,14 +249,19 @@ const baseCandidate = ({ intervention, triggerType, sourceReportRunId, intent, r
 
 const finalized = (candidate) => {
   candidate.reason_codes = [...new Set(candidate.reason_codes)].slice(0, EVALUATION_LIMITS.reasonCodes);
+  const confidence = calculateEvaluationConfidence(candidate);
+  candidate.confidence_level = confidence.level;
+  candidate.confidence_score = confidence.score;
+  candidate.confidence_factors = confidence.factors.slice(0, EVALUATION_LIMITS.confidenceFactors);
+  candidate.confidence_version = confidence.version;
   candidate.summary = buildEvaluationSummary({ status: candidate.status, primaryMetric: candidate.primary_metric, observedResult: candidate.observed_result, baseline: candidate.baseline, followUp: candidate.follow_up, reasons: candidate.reason_codes }).slice(0, EVALUATION_LIMITS.summary);
   candidate.evidence_hash = evaluationCandidateHash(candidate);
   return candidate;
 };
 
-const computeCandidate = ({ intervention, runs, relatedInterventions, triggerType, sourceReportRunId, report, ruleVersion = EVALUATION_RULE_VERSION, now }) => {
+const computeCandidate = ({ intervention, runs, relatedInterventions, triggerType, sourceReportRunId, report, ruleVersion = EVALUATION_RULE_VERSION, metricRules = EVALUATION_METRIC_RULES, now }) => {
   const intent = effectiveIntent(intervention);
-  const candidate = baseCandidate({ intervention, triggerType, sourceReportRunId, intent, ruleVersion, now });
+  const candidate = baseCandidate({ intervention, triggerType, sourceReportRunId, intent, ruleVersion, metricRules, now });
   if (intervention.status !== "active") {
     candidate.status = "invalidated";
     const reason = intervention.status === "cancelled" ? "intervention_cancelled" : "intervention_superseded";
@@ -311,7 +325,12 @@ const computeCandidate = ({ intervention, runs, relatedInterventions, triggerTyp
     candidate.overlap_intervention_ids = overlaps.map((item) => item._id).slice(0, EVALUATION_LIMITS.overlapInterventions);
     return finalized(candidate);
   }
-  candidate.metric_results = intent.watched_metrics.map((metric) => compareEvaluationMetric({ metric, baseline: candidate.baseline, followUp: candidate.follow_up }));
+  candidate.metric_results = intent.watched_metrics.map((metric) => compareEvaluationMetric({
+    metric,
+    baseline: candidate.baseline,
+    followUp: candidate.follow_up,
+    threshold: candidate.threshold_snapshots.find((item) => item.metric === metric),
+  }));
   const primary = candidate.metric_results.find((item) => item.metric === intent.primary_metric);
   if (!primary || primary.classification === "not_evaluable") {
     candidate.status = "not_evaluable";
@@ -334,6 +353,41 @@ const recordEvaluationActivity = async ({ evaluation, previous, actorId, Models,
   }
   const invalidated = evaluation.status === "invalidated";
   await recordActivity({ agency_id: evaluation.agency_id, client_id: evaluation.client_id, report_id: evaluation.report_id_at_action, user_id: actorId || null, type: invalidated ? "evaluation_invalidated" : "evaluation_created", title: invalidated ? "Evaluation invalidated" : "Evaluation calculated", description: evaluation.summary, severity: "stable", idempotency_key: `phase4:evaluation:${evaluation._id}:${invalidated ? "invalidated" : "created"}`, metadata: { evaluation_id: evaluation._id, intervention_id: evaluation.intervention_id, issue_id: evaluation.issue_id, trigger: evaluation.trigger_type, primary_metric: evaluation.primary_metric, observed_result: evaluation.observed_result, sequence: evaluation.sequence }, session, ActivityModel: Models.Activity });
+};
+
+const projectEvaluationToIssue = async ({ issue, intervention, evaluation, Models, session }) => {
+  const monitoringInterventionId = issue.monitoring_intervention_id || issue.latest_intervention_id;
+  if (!sameId(monitoringInterventionId, intervention._id)) return null;
+  const updated = await Models.Issue.findOneAndUpdate(
+    {
+      _id: issue._id,
+      agency_id: issue.agency_id,
+      lifecycle_revision: issue.lifecycle_revision,
+      intervention_revision: issue.intervention_revision,
+      ...(issue.monitoring_intervention_id
+        ? { monitoring_intervention_id: intervention._id }
+        : { latest_intervention_id: intervention._id }),
+    },
+    {
+      $set: {
+        latest_evaluation_id: evaluation._id,
+        latest_evaluation_status: evaluation.status,
+        latest_evaluation_result: evaluation.observed_result || null,
+        latest_evaluation_confidence: evaluation.confidence_level,
+        latest_evaluation_at: evaluation.calculated_at,
+      },
+      $inc: { evaluation_revision: 1 },
+    },
+    { new: true, session }
+  );
+  if (!updated) {
+    throw createEvaluationError(
+      EVALUATION_ERROR.INTEGRITY_CONFLICT,
+      "Issue lifecycle changed during Evaluation projection.",
+      409
+    );
+  }
+  return updated;
 };
 
 export const processInterventionEvaluation = async ({
@@ -498,6 +552,7 @@ export const processInterventionEvaluation = async ({
         const advancementTime = leaseClock();
         const advanced = await Models.EvaluationSeries.findOneAndUpdate({ _id: series._id, agency_id: agencyId, intervention_id: intervention._id, revision: series.revision, current_evaluation_id: current?._id || null, "processing_lock.token": seriesLease.token, "processing_lock.expires_at": { $gt: advancementTime } }, { $set: { current_evaluation_id: evaluation._id, ...refreshSet, ...(sourceReportRunId ? { last_processed_report_run_id: sourceReportRunId } : {}) }, $inc: { next_sequence: 1, revision: 1 } }, { new: true, session, phase4SeriesOperation: "advance" });
         if (!advanced) throw createEvaluationError(EVALUATION_ERROR.LEASE_LOST, "EvaluationSeries changed during version advancement.", 409);
+        await projectEvaluationToIssue({ issue, intervention, evaluation, Models, session });
         await transactionStageHook?.("series_advanced", { evaluation, series: advanced, session });
         if (manual) await recordActivity({ agency_id: intervention.agency_id, client_id: intervention.client_id, report_id: intervention.report_id_at_action, user_id: permission.actorId, type: "evaluation_refresh_requested", title: "Evaluation refresh requested", description: evaluation.summary, severity: "stable", idempotency_key: `phase4:refresh:${agencyId}:${idempotencyKey}`, metadata: { evaluation_id: evaluation._id, intervention_id: intervention._id, issue_id: intervention.issue_id, trigger: triggerType, primary_metric: evaluation.primary_metric, observed_result: evaluation.observed_result, sequence: evaluation.sequence }, session, ActivityModel: Models.Activity });
         await recordEvaluationActivity({ evaluation, previous: current, actorId: permission.actorId, Models, session });

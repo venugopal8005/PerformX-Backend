@@ -64,6 +64,42 @@ const result = (input = {}) => {
   };
 };
 
+const threshold = (input = {}) => {
+  const value = plain(input);
+  const pair = (item = {}) => ({
+    relative: number(item.relative),
+    absolute: number(item.absolute),
+  });
+  return {
+    metric: text(value.metric, 64),
+    directionality: text(value.directionality, 32),
+    unit: text(value.unit, 16),
+    materialImprovement: pair(value.material_improvement),
+    materialWorsening: pair(value.material_worsening),
+    noiseBoundary: {
+      ...pair(value.noise_boundary),
+      requiresBoth: value.noise_boundary?.requires_both === true,
+    },
+    minimumEvidence: {
+      spend: number(value.minimum_evidence?.spend),
+      impressions: number(value.minimum_evidence?.impressions),
+      clicks: number(value.minimum_evidence?.clicks),
+      conversions: number(value.minimum_evidence?.conversions),
+    },
+    requiresAttribution: value.requires_attribution === true,
+    requiresConversionValue: value.requires_conversion_value === true,
+  };
+};
+
+const confidence = (value) => ({
+  confidenceLevel: text(value.confidence_level, 32) || "unavailable",
+  confidenceScore: number(value.confidence_score),
+  confidenceFactors: value.confidence_level
+    ? (value.confidence_factors || []).map((item) => text(item, 128)).filter(Boolean)
+    : ["legacy_confidence_unavailable"],
+  confidenceVersion: number(value.confidence_version),
+});
+
 export const serializeEvaluationListItem = (input, { superseded = false } = {}) => {
   const value = plain(input);
   const primary = (value.metric_results || []).find((item) => item.metric === value.primary_metric);
@@ -85,6 +121,7 @@ export const serializeEvaluationListItem = (input, { superseded = false } = {}) 
     absoluteDelta: number(primary?.absolute_delta),
     relativeDelta: number(primary?.relative_delta),
     observedResult: text(value.observed_result, 32),
+    ...confidence(value),
     interpretability: text(value.interpretability, 32),
     reasonCodes: (value.reason_codes || []).map((item) => text(item, 128)).filter(Boolean),
     calculatedAt: date(value.calculated_at),
@@ -117,6 +154,7 @@ export const serializeEvaluationDetail = (
     baseline: evidence(value.baseline),
     followUp: evidence(value.follow_up),
     metricResults: (value.metric_results || []).map(result),
+    thresholdSnapshots: (value.threshold_snapshots || []).map(threshold),
     overlapInterventionIds: (value.overlap_intervention_ids || []).map(id).filter(Boolean),
     evidenceCompleteness: text(value.evidence_completeness, 32),
     summary: text(value.summary, 500),

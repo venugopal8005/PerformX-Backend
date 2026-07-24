@@ -4,6 +4,7 @@ import {
   EVALUATION_BASELINE_FRESHNESS_DAYS,
   EVALUATION_CADENCE_DAYS,
   EVALUATION_FOLLOW_UP_TIMEOUT_DAYS,
+  EVALUATION_CONFIDENCE_VERSION,
   EVALUATION_LIMITS,
   EVALUATION_METRIC_RULES,
   EVALUATION_NORMALIZATION_VERSION,
@@ -166,8 +167,44 @@ export const buildEvidenceSnapshot = ({ run, validation, cadence, timezone }) =>
 
 const minimumMet = (values, minimum) => Object.entries(minimum).every(([field, value]) => Number(values?.[field]) >= value);
 
-export const compareEvaluationMetric = ({ metric, baseline, followUp }) => {
-  const rule = EVALUATION_METRIC_RULES[metric];
+const minimumFields = ["spend", "impressions", "clicks", "conversions"];
+
+export const buildEvaluationThresholdSnapshots = ({
+  metrics = [],
+  rules = EVALUATION_METRIC_RULES,
+} = {}) => metrics.flatMap((metric) => {
+  const rule = rules?.[metric];
+  if (!rule) return [];
+  const minimum = Object.fromEntries(
+    minimumFields.map((field) => [field, Number.isFinite(Number(rule.minimum?.[field])) ? Number(rule.minimum[field]) : null])
+  );
+  return [{
+    metric,
+    directionality: rule.directionality,
+    unit: rule.unit,
+    material_improvement: { relative: Number(rule.relative), absolute: Number(rule.absolute) },
+    material_worsening: { relative: Number(rule.relative), absolute: Number(rule.absolute) },
+    noise_boundary: { relative: Number(rule.relative), absolute: Number(rule.absolute), requires_both: true },
+    minimum_evidence: minimum,
+    requires_attribution: rule.requiresAttribution === true,
+    requires_conversion_value: rule.requiresValue === true,
+  }];
+});
+
+const ruleFromThreshold = (threshold) => threshold ? {
+  directionality: threshold.directionality,
+  unit: threshold.unit,
+  relative: threshold.noise_boundary.relative,
+  absolute: threshold.noise_boundary.absolute,
+  minimum: Object.fromEntries(
+    Object.entries(threshold.minimum_evidence || {}).filter(([, value]) => value != null)
+  ),
+  requiresAttribution: threshold.requires_attribution,
+  requiresValue: threshold.requires_conversion_value,
+} : null;
+
+export const compareEvaluationMetric = ({ metric, baseline, followUp, threshold = null }) => {
+  const rule = ruleFromThreshold(threshold) || EVALUATION_METRIC_RULES[metric];
   if (!rule) return { metric, classification: "not_evaluable", minimum_evidence_met: false, material: false, reason_codes: ["unsupported_metric"] };
   if (rule.requiresAttribution && (!baseline.attribution_windows.length || !sameArray(baseline.attribution_windows, followUp.attribution_windows))) {
     return { metric, directionality: rule.directionality, unit: rule.unit, baseline_value: null, follow_up_value: null, absolute_delta: null, relative_delta: null, minimum_evidence_met: false, material: false, classification: "not_evaluable", reason_codes: ["attribution_not_comparable"] };
@@ -202,6 +239,80 @@ export const compareEvaluationMetric = ({ metric, baseline, followUp }) => {
     classification = (positive === (rule.directionality === "higher_is_better")) ? "improved" : "worsened";
   }
   return { metric, directionality: rule.directionality, unit: rule.unit, baseline_value: baselineValue, follow_up_value: followUpValue, absolute_delta: absolute, relative_delta: relative, minimum_evidence_met: true, material, classification, reason_codes: zeroBaseline ? ["zero_baseline"] : [] };
+};
+
+const confidenceFactorForReason = (reason, candidate) => {
+  if (reason === "overlapping_intervention" || reason === "overlap_completeness_unavailable") return "overlapping_intervention";
+  if (["baseline_not_found", "baseline_evidence_missing", "baseline_stale"].includes(reason)) return "missing_baseline_report_run";
+  if (["follow_up_not_found", "follow_up_evidence_missing", "follow_up_timeout", "awaiting_follow_up"].includes(reason)) return "missing_follow_up_report_run";
+  if (["attribution_mismatch", "attribution_not_comparable"].includes(reason)) return "attribution_incompatible";
+  if (["historical_fallback_evidence", "source_evidence_unvalidated", "malformed_evidence"].includes(reason)) return "data_quality_failure";
+  if (["window_mismatch", "window_duration_mismatch", "cadence_mismatch", "timezone_mismatch", "currency_mismatch", "binding_revision_mismatch", "account_binding_changed"].includes(reason)) return "data_quality_failure";
+  if (reason === "intervention_cancelled" || reason === "intervention_superseded") return "evaluation_invalidated";
+  if (reason === "minimum_volume_not_met") {
+    const minimums = candidate.threshold_snapshots?.flatMap((item) => Object.entries(item.minimum_evidence || {})) || [];
+    const values = [candidate.baseline?.values, candidate.follow_up?.values].filter(Boolean);
+    if (minimums.some(([field, value]) => field === "spend" && value != null && values.some((row) => Number(row.spend) < value))) return "insufficient_spend";
+    if (minimums.some(([field, value]) => field === "conversions" && value != null && values.some((row) => Number(row.conversions) < value))) return "insufficient_conversions";
+    return "insufficient_volume";
+  }
+  return null;
+};
+
+const evidenceMarginFactors = (candidate) => {
+  const factors = new Set();
+  for (const threshold of candidate.threshold_snapshots || []) {
+    for (const [field, minimum] of Object.entries(threshold.minimum_evidence || {})) {
+      if (minimum == null || minimum <= 0) continue;
+      const values = [candidate.baseline?.values?.[field], candidate.follow_up?.values?.[field]];
+      if (values.some((value) => Number(value) < minimum * 2)) {
+        factors.add(field === "spend" ? "insufficient_spend" : field === "conversions" ? "insufficient_conversions" : "insufficient_volume");
+      }
+    }
+  }
+  return [...factors];
+};
+
+export const calculateEvaluationConfidence = (candidate) => {
+  const factors = new Set(
+    (candidate.reason_codes || []).map((reason) => confidenceFactorForReason(reason, candidate)).filter(Boolean)
+  );
+  if (candidate.status === "invalidated") factors.add("evaluation_invalidated");
+  if (!candidate.baseline) factors.add("incomplete_baseline_evidence");
+  if (!candidate.follow_up) factors.add("incomplete_follow_up_evidence");
+
+  if (candidate.status === "insufficient_data") {
+    return { level: "low", score: 20, factors: [...factors], version: EVALUATION_CONFIDENCE_VERSION };
+  }
+  if (candidate.status !== "ready") {
+    return { level: "unavailable", score: null, factors: [...factors], version: EVALUATION_CONFIDENCE_VERSION };
+  }
+
+  let score = 100;
+  const cadenceDays = EVALUATION_CADENCE_DAYS[candidate.baseline?.window?.cadence];
+  if (cadenceDays != null && cadenceDays < 7) {
+    factors.add("short_observation_window");
+    score -= 20;
+  }
+  if ([candidate.baseline?.row_count, candidate.follow_up?.row_count].some((value) => Number(value) <= 1)) {
+    factors.add("limited_observation_density");
+    score -= 15;
+  }
+  for (const factor of evidenceMarginFactors(candidate)) {
+    factors.add(factor);
+    score -= 20;
+  }
+  if (candidate.observed_result === "mixed") {
+    factors.add("unstable_metric_direction");
+    score -= 15;
+  }
+  if ([candidate.baseline?.completeness, candidate.follow_up?.completeness].some((value) => value !== "complete")) {
+    factors.add("data_quality_failure");
+    score -= 30;
+  }
+  score = Math.max(0, Math.min(100, score));
+  const level = score >= 75 ? "high" : score >= 50 ? "medium" : "low";
+  return { level, score, factors: [...factors], version: EVALUATION_CONFIDENCE_VERSION };
 };
 
 export const classifyOverallResult = ({ primaryMetric, watchedMetrics = [], metricResults = [] }) => {
@@ -246,7 +357,12 @@ export const evaluationCandidateHash = (candidate) => hashEvaluationEvidence({
   baseline: candidate.baseline,
   follow_up: candidate.follow_up,
   metric_results: candidate.metric_results,
+  threshold_snapshots: candidate.threshold_snapshots,
   observed_result: candidate.observed_result,
+  confidence_level: candidate.confidence_level,
+  confidence_score: candidate.confidence_score,
+  confidence_factors: candidate.confidence_factors,
+  confidence_version: candidate.confidence_version,
   interpretability: candidate.interpretability,
   reason_codes: candidate.reason_codes,
   overlap_intervention_ids: candidate.overlap_intervention_ids,

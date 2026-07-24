@@ -632,6 +632,113 @@ test("data-quality Issue accepts trustworthy data-quality recovery evidence", as
   assert.equal(issue.absence_streak, 1);
 });
 
+test("one moderate post-Intervention observation is tracked and consecutive evidence returns the Issue to open", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-10" }));
+  const interventionId = objectId();
+  await Issue.updateOne({}, {
+    $set: {
+      status: "monitoring",
+      latest_intervention_id: interventionId,
+      monitoring_intervention_id: interventionId,
+      monitoring_started_at: new Date("2026-07-10T13:00:00.000Z"),
+      monitoring_reason: "actionable_intervention_recorded",
+      last_intervention_at: new Date("2026-07-10T13:00:00.000Z"),
+    },
+  });
+
+  await process(await createRun(domain, { start: "2026-07-11", severity: "moderate" }));
+  let issue = await Issue.findOne({});
+  assert.equal(issue.status, "monitoring");
+  assert.equal(issue.worsening_streak, 1);
+
+  await process(await createRun(domain, { start: "2026-07-12", severity: "moderate" }));
+  issue = await Issue.findOne({});
+  assert.equal(issue.status, "open");
+  assert.equal(issue.worsening_streak, 2);
+  assert.equal(await Issue.countDocuments({}), 1);
+});
+
+test("critical strong-authority post-Intervention evidence returns the Issue to open immediately", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-10" }));
+  const interventionId = objectId();
+  await Issue.updateOne({}, {
+    $set: {
+      status: "monitoring",
+      latest_intervention_id: interventionId,
+      monitoring_intervention_id: interventionId,
+      monitoring_started_at: new Date("2026-07-10T13:00:00.000Z"),
+      monitoring_reason: "actionable_intervention_recorded",
+      last_intervention_at: new Date("2026-07-10T13:00:00.000Z"),
+    },
+  });
+  await process(await createRun(domain, { start: "2026-07-11", severity: "critical" }));
+  const issue = await Issue.findOne({});
+  assert.equal(issue.status, "open");
+  assert.equal(issue.worsening_streak, 1);
+});
+
+test("a clean recovery after one bad post-Intervention observation clears the worsening streak", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-10" }));
+  const interventionId = objectId();
+  await Issue.updateOne({}, {
+    $set: {
+      status: "monitoring",
+      latest_intervention_id: interventionId,
+      monitoring_intervention_id: interventionId,
+      monitoring_started_at: new Date("2026-07-10T13:00:00.000Z"),
+      monitoring_reason: "actionable_intervention_recorded",
+      last_intervention_at: new Date("2026-07-10T13:00:00.000Z"),
+    },
+  });
+  await process(await createRun(domain, { start: "2026-07-11", severity: "moderate" }));
+  await process(await createRun(domain, { start: "2026-07-12", signal: false }));
+  const issue = await Issue.findOne({});
+  assert.equal(issue.status, "monitoring");
+  assert.equal(issue.worsening_streak, 0);
+  assert.equal(issue.worsening_metric, null);
+});
+
+test("intervention-backed resolution requires acceptable improved Evaluation confidence plus clean observations", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-10" }));
+  const interventionId = objectId();
+  await Issue.updateOne({}, {
+    $set: {
+      status: "monitoring",
+      latest_intervention_id: interventionId,
+      monitoring_intervention_id: interventionId,
+      monitoring_started_at: new Date("2026-07-10T13:00:00.000Z"),
+      monitoring_reason: "actionable_intervention_recorded",
+      last_intervention_at: new Date("2026-07-10T13:00:00.000Z"),
+      intervention_count: 1,
+      latest_evaluation_id: objectId(),
+      latest_evaluation_status: "ready",
+      latest_evaluation_result: "improved",
+      latest_evaluation_confidence: "low",
+      latest_evaluation_at: new Date("2026-07-11T13:00:00.000Z"),
+    },
+  });
+  await process(await createRun(domain, { start: "2026-07-11", signal: false }));
+  await process(await createRun(domain, { start: "2026-07-12", signal: false }));
+  let issue = await Issue.findOne({});
+  assert.equal(issue.status, "monitoring");
+  assert.equal(issue.absence_streak, 2);
+
+  await Issue.updateOne({}, {
+    $set: {
+      latest_evaluation_id: objectId(),
+      latest_evaluation_confidence: "high",
+      latest_evaluation_at: new Date("2026-07-12T13:00:00.000Z"),
+    },
+  });
+  await process(await createRun(domain, { start: "2026-07-13", signal: false }));
+  issue = await Issue.findOne({});
+  assert.equal(issue.status, "resolved");
+});
+
 test("retryable transaction failures retry without partial lineage", async () => {
   const domain = await createDomain();
   const run = await createRun(domain, { start: "2026-07-10" });
@@ -785,6 +892,37 @@ test("concurrent repeated occurrences allocate complete unique occurrence number
   assert.equal(issue.occurrence_count, 3);
   assert.equal(linked.length, 3);
   assert.deepEqual(linked.map((signal) => signal.issue_occurrence_number), [1, 2, 3]);
+});
+
+test("concurrent workers cannot double-count one post-Intervention observation", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-09" }));
+  const interventionId = objectId();
+  await Issue.updateOne({}, {
+    $set: {
+      status: "monitoring",
+      latest_intervention_id: interventionId,
+      monitoring_intervention_id: interventionId,
+      monitoring_started_at: new Date("2026-07-09T13:00:00.000Z"),
+      monitoring_reason: "actionable_intervention_recorded",
+      last_intervention_at: new Date("2026-07-09T13:00:00.000Z"),
+    },
+  });
+  const [first, duplicate] = await Promise.all([
+    createRun(domain, { start: "2026-07-10", severity: "moderate" }),
+    createRun(domain, { start: "2026-07-10", severity: "moderate" }),
+  ]);
+
+  const outcomes = await Promise.all([process(first), process(duplicate)]);
+  const issue = await Issue.findOne({});
+  const linked = await Signal.find({ issue_id: issue._id });
+
+  assert.deepEqual(outcomes.map((outcome) => outcome.classification).sort(), ["ineligible", "matched"]);
+  assert.equal(issue.status, "monitoring");
+  assert.equal(issue.worsening_streak, 1);
+  assert.equal(issue.occurrence_count, 2);
+  assert.equal(linked.length, 2);
+  assert.equal(await Issue.countDocuments({}), 1);
 });
 
 test("duplicate-key retry reloads and validates the winning Issue scope", async () => {

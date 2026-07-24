@@ -10,6 +10,8 @@ import {
 } from "../src/domain/phase4Evaluation.domain.js";
 import {
   canonicalFollowUpWindow,
+  buildEvaluationThresholdSnapshots,
+  calculateEvaluationConfidence,
   classifyOverallResult,
   compareEvaluationMetric,
   detectOverlap,
@@ -113,6 +115,33 @@ test("conversion metrics require exact attribution windows", () => {
   const result = compareEvaluationMetric({ metric: "cpa", baseline: snapshot(), followUp: snapshot({}, { attribution_windows: ["1d_click"] }) });
   assert.equal(result.classification, "not_evaluable");
   assert.deepEqual(result.reason_codes, ["attribution_not_comparable"]);
+});
+
+test("confidence remains separate from improved and worsened results", () => {
+  const thresholdSnapshots = buildEvaluationThresholdSnapshots({ metrics: ["ctr"] });
+  const candidate = (observedResult, cadence, impressions, rowCount) => ({
+    status: "ready",
+    observed_result: observedResult,
+    reason_codes: [],
+    threshold_snapshots: thresholdSnapshots,
+    baseline: { window: { cadence }, values: { impressions }, row_count: rowCount, completeness: "complete" },
+    follow_up: { window: { cadence }, values: { impressions }, row_count: rowCount, completeness: "complete" },
+  });
+  const lowImproved = calculateEvaluationConfidence(candidate("improved", "daily", 100, 1));
+  const lowWorsened = calculateEvaluationConfidence(candidate("worsened", "daily", 100, 1));
+  const highWorsened = calculateEvaluationConfidence(candidate("worsened", "weekly", 1000, 10));
+  assert.equal(lowImproved.level, "low");
+  assert.equal(lowWorsened.level, "low");
+  assert.equal(highWorsened.level, "high");
+});
+
+test("threshold snapshots are detached from later rule changes", () => {
+  const rules = { ctr: { ...EVALUATION_METRIC_RULES.ctr, minimum: { impressions: 100 } } };
+  const snapshots = buildEvaluationThresholdSnapshots({ metrics: ["ctr"], rules });
+  rules.ctr.relative = 0.5;
+  rules.ctr.minimum.impressions = 999;
+  assert.equal(snapshots[0].noise_boundary.relative, 0.1);
+  assert.equal(snapshots[0].minimum_evidence.impressions, 100);
 });
 
 for (const [metric, rule] of Object.entries(EVALUATION_METRIC_RULES)) {

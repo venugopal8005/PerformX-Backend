@@ -40,6 +40,7 @@ import {
   buildIssueObservationKey,
   classifyCleanIssueObservation,
   classifyIssueObservationOrder,
+  classifyPostInterventionBadObservation,
 } from "./issueObservation.service.js";
 import {
   normalizeMetaBindingRevision,
@@ -554,9 +555,51 @@ const setCurrentOccurrence = ({ issue, signal, reportRun, observation }) => {
   issue.summary = bounded(signal.description, 2000);
   issue.latest_evidence = primaryEvidence(signal);
   issue.absence_streak = 0;
+  issue.worsening_streak = 0;
+  issue.worsening_metric = null;
+  issue.worsening_started_at = null;
   issue.last_observation_key = observation.key;
   issue.last_observation_end = observation.window.endDate;
   issue.lifecycle_revision += 1;
+};
+
+const trackPostInterventionBadObservation = ({ issue, signal, reportRun, observation, policy, now }) => {
+  const previousSeverity = issue.current_severity;
+  const observedAt = signal.detected_at || signal.createdAt || now;
+  const continuing = policy.eligibleForStreak && issue.worsening_metric === policy.metric;
+  issue.worsening_streak = policy.eligibleForStreak ? (continuing ? issue.worsening_streak + 1 : 1) : 0;
+  issue.worsening_metric = policy.eligibleForStreak ? policy.metric : null;
+  issue.worsening_started_at = policy.eligibleForStreak
+    ? continuing ? issue.worsening_started_at || observedAt : observedAt
+    : null;
+  issue.previous_severity = previousSeverity;
+  issue.current_severity = validateSeverity(signal.severity);
+  issue.trend = trendForSeverity(previousSeverity, issue.current_severity);
+  issue.last_seen_at = observedAt;
+  issue.latest_signal_id = signal._id;
+  issue.latest_report_run_id = reportRun._id;
+  issue.latest_report_id = signal.report_id;
+  issue.report_ids = [...new Set([...(issue.report_ids || []).map(String), String(signal.report_id)])];
+  issue.title = bounded(signal.title, 512) || issue.title;
+  issue.summary = bounded(signal.description, 2000);
+  issue.latest_evidence = primaryEvidence(signal);
+  issue.absence_streak = 0;
+  issue.last_observation_key = observation.key;
+  issue.last_observation_end = observation.window.endDate;
+  issue.lifecycle_revision += 1;
+
+  const shouldOpen = policy.criticalImmediate || issue.worsening_streak >= policy.requiredConsecutive;
+  if (shouldOpen) {
+    const wasResolved = issue.status === "resolved";
+    issue.status = "open";
+    issue.active_fingerprint = issue.fingerprint;
+    issue.resolved_at = null;
+    if (wasResolved) {
+      issue.reopen_count += 1;
+      issue.reopened_at = observedAt;
+    }
+  }
+  return shouldOpen;
 };
 
 const createIssueDocument = ({
@@ -593,6 +636,9 @@ const createIssueDocument = ({
   previous_severity: null,
   trend: "unchanged",
   absence_streak: 0,
+  worsening_streak: 0,
+  worsening_metric: null,
+  worsening_started_at: null,
   last_observation_key: observation.key,
   last_observation_end: observation.window.endDate,
   latest_evidence: primaryEvidence(signal),
@@ -749,7 +795,17 @@ export const processNegativeSignalTransaction = async ({
   let classification;
   if (issue) {
     issue.occurrence_count += 1;
-    setCurrentOccurrence({ issue, signal, reportRun, observation });
+    if (issue.status === "monitoring" && issue.latest_intervention_id) {
+      const policy = classifyPostInterventionBadObservation({
+        issue,
+        signal,
+        reportRun,
+        observedAt: observation.window.endDate,
+      });
+      trackPostInterventionBadObservation({ issue, signal, reportRun, observation, policy, now });
+    } else {
+      setCurrentOccurrence({ issue, signal, reportRun, observation });
+    }
     await issue.save({ session });
     classification = "matched";
   } else if (latestResolved) {
@@ -758,11 +814,22 @@ export const processNegativeSignalTransaction = async ({
     if (recurrenceAge >= 0 && recurrenceAge <= ISSUE_RECURRENCE_MS) {
       issue = latestResolved;
       issue.occurrence_count += 1;
-      issue.reopen_count += 1;
-      issue.reopened_at = signal.detected_at || signal.createdAt || now;
-      setCurrentOccurrence({ issue, signal, reportRun, observation });
+      if (issue.latest_intervention_id) {
+        const policy = classifyPostInterventionBadObservation({
+          issue,
+          signal,
+          reportRun,
+          observedAt: observation.window.endDate,
+        });
+        const reopened = trackPostInterventionBadObservation({ issue, signal, reportRun, observation, policy, now });
+        classification = reopened ? "reopened" : "matched";
+      } else {
+        issue.reopen_count += 1;
+        issue.reopened_at = signal.detected_at || signal.createdAt || now;
+        setCurrentOccurrence({ issue, signal, reportRun, observation });
+        classification = "reopened";
+      }
       await issue.save({ session });
-      classification = "reopened";
     } else {
       [issue] = await Models.Issue.create(
         [createIssueDocument({ scopeResult, fingerprintResult, signal, reportRun, observation, predecessorIssueId: latestResolved._id })],
@@ -819,7 +886,10 @@ const processCleanObservationTransaction = async ({
       "scope.entity.campaign_id": base.campaignId,
       "scope.comparison.cadence": base.cadence,
       "scope.comparison.timezone": base.timezone,
-      status: { $in: ["open", "monitoring"] },
+      $or: [
+        { status: { $in: ["open", "monitoring"] } },
+        { status: "resolved", worsening_streak: { $gt: 0 } },
+      ],
     }),
     session
   );
@@ -840,8 +910,17 @@ const processCleanObservationTransaction = async ({
     issue.last_observation_end = observation.window.endDate;
     issue.latest_report_run_id = reportRun._id;
     issue.lifecycle_revision += 1;
+    issue.worsening_streak = 0;
+    issue.worsening_metric = null;
+    issue.worsening_started_at = null;
     if (!quality.clean) {
       issue.absence_streak = 0;
+      await issue.save({ session });
+      changed.push(issue);
+      continue;
+    }
+
+    if (issue.status === "resolved") {
       await issue.save({ session });
       changed.push(issue);
       continue;
@@ -857,7 +936,15 @@ const processCleanObservationTransaction = async ({
       reportRun,
       observedAt: observation.window.endDate,
     });
-    if (issue.absence_streak >= 2) {
+    const evaluationSupportsResolution =
+      !issue.monitoring_intervention_id ||
+      (issue.latest_evaluation_status === "ready" &&
+        issue.latest_evaluation_result === "improved" &&
+        ["high", "medium"].includes(issue.latest_evaluation_confidence) &&
+        issue.latest_evaluation_at &&
+        (issue.monitoring_started_at || issue.last_intervention_at) &&
+        new Date(issue.latest_evaluation_at) >= new Date(issue.monitoring_started_at || issue.last_intervention_at));
+    if (issue.absence_streak >= 2 && evaluationSupportsResolution) {
       issue.status = "resolved";
       issue.resolved_at = observation.window.endDate;
       issue.active_fingerprint = null;
@@ -865,6 +952,8 @@ const processCleanObservationTransaction = async ({
       issue.status = "monitoring";
       issue.resolved_at = null;
       issue.active_fingerprint = issue.fingerprint;
+      issue.monitoring_started_at ||= observation.window.endDate;
+      issue.monitoring_reason ||= "clean_observation";
     }
     await issue.save({ session });
     changed.push(issue);

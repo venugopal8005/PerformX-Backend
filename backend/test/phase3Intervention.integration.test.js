@@ -316,7 +316,7 @@ after(async () => {
   await replicaSet?.stop();
 });
 
-test("creation records human evidence transactionally without changing Issue lifecycle", async () => {
+test("active actionable creation records evidence and starts Issue monitoring transactionally", async () => {
   const scenario = await createScenario();
   const beforeState = lifecycleState(scenario.issue);
   const result = await createIntervention({
@@ -330,11 +330,49 @@ test("creation records human evidence transactionally without changing Issue lif
   assert.equal(result.intervention.performed_by_snapshot.provenance, "workspace_member");
   assert.equal(result.intervention.scope_snapshot.campaign.name, "Prospecting");
   const updatedIssue = await Issue.findById(scenario.issue._id);
-  assert.deepEqual(lifecycleState(updatedIssue), beforeState);
+  assert.equal(beforeState.status, "open");
+  assert.equal(updatedIssue.status, "monitoring");
+  assert.equal(updatedIssue.absence_streak, 0);
+  assert.equal(updatedIssue.lifecycle_revision, beforeState.lifecycle_revision);
+  assert.equal(updatedIssue.monitoring_reason, "actionable_intervention_recorded");
+  assert.equal(String(updatedIssue.monitoring_intervention_id), String(result.intervention._id));
   assert.equal(updatedIssue.intervention_count, 1);
   assert.equal(updatedIssue.intervention_revision, 1);
   assert.equal(String(updatedIssue.latest_intervention_id), String(result.intervention._id));
   assert.equal(await Activity.countDocuments({ type: "intervention_recorded" }), 1);
+});
+
+test("non-actionable and cancelled Intervention records do not start Issue monitoring", async () => {
+  const scenario = await createScenario();
+  const created = await createIntervention({
+    agencyId: scenario.agency._id,
+    recorder: { id: scenario.member._id },
+    issueId: scenario.issue._id,
+    input: createInput({
+      actionType: "monitor_only",
+      actionPayload: {},
+      reason: "Record observation without changing the campaign",
+    }),
+    now,
+  });
+  let issue = await Issue.findById(scenario.issue._id);
+  assert.equal(issue.status, "open");
+  assert.equal(issue.monitoring_started_at, null);
+  await cancelIntervention({
+    agencyId: scenario.agency._id,
+    recorder: { id: scenario.member._id },
+    interventionId: created.intervention._id,
+    input: {
+      idempotencyKey: `cancel-non-actionable-${sequence}-123456`,
+      expectedRevision: 0,
+      reason: "The observation record is no longer relevant",
+    },
+    now: new Date(now.getTime() + 1000),
+    evaluationProcessor: async () => ({ skipped: true }),
+  });
+  issue = await Issue.findById(scenario.issue._id);
+  assert.equal(issue.status, "open");
+  assert.equal(issue.monitoring_started_at, null);
 });
 
 test("Intervention create, correct, and cancel remain committed when Review projection fails", async () => {
@@ -804,7 +842,7 @@ test("archived Client and reassigned account block writes while revoked connecti
   );
 });
 
-test("correction creates immutable successor and owner permission preserves Issue lifecycle", async () => {
+test("correction creates immutable successor without destroying the monitoring history", async () => {
   const scenario = await createScenario();
   const beforeState = lifecycleState(scenario.issue);
   const created = await createIntervention({ agencyId: scenario.agency._id, recorder: { id: scenario.member._id }, issueId: scenario.issue._id, input: createInput(), now });
@@ -828,7 +866,11 @@ test("correction creates immutable successor and owner permission preserves Issu
   assert.equal(String(corrected.intervention.supersedes_intervention_id), String(original._id));
   assert.equal(corrected.intervention.issue_snapshot.title, original.issue_snapshot.title);
   const issue = await Issue.findById(scenario.issue._id);
-  assert.deepEqual(lifecycleState(issue), beforeState);
+  assert.equal(beforeState.status, "open");
+  assert.equal(issue.status, "monitoring");
+  assert.equal(issue.lifecycle_revision, beforeState.lifecycle_revision);
+  assert.equal(String(issue.monitoring_intervention_id), String(created.intervention._id));
+  assert.equal(String(issue.latest_intervention_id), String(corrected.intervention._id));
   assert.equal(issue.intervention_count, 2);
   assert.equal(issue.intervention_revision, 2);
   assert.equal(await Activity.countDocuments({ type: "intervention_corrected" }), 1);
@@ -1013,6 +1055,8 @@ test("two simultaneous distinct actions serialize through the Client lease witho
   const issue = await Issue.findById(scenario.issue._id);
   assert.equal(issue.intervention_count, 2);
   assert.equal(issue.intervention_revision, 2);
+  assert.equal(issue.status, "monitoring");
+  assert.equal(String(issue.monitoring_intervention_id), String(first.intervention._id));
   assert.equal(await Intervention.countDocuments({ issue_id: scenario.issue._id }), 2);
 });
 

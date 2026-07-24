@@ -110,6 +110,17 @@ export const serializeIssueDetail = (issue, parents = {}) => ({
   interventionCount: safeHistoricalNumber(issue.intervention_count) || 0,
   lastInterventionAt: date(issue.last_intervention_at),
   interventionRevision: safeHistoricalNumber(issue.intervention_revision) || 0,
+  monitoringStartedAt: date(issue.monitoring_started_at),
+  monitoringReason: text(issue.monitoring_reason, 64),
+  monitoringInterventionId: id(issue.monitoring_intervention_id),
+  worseningStreak: safeHistoricalNumber(issue.worsening_streak) || 0,
+  worseningMetric: text(issue.worsening_metric, 128),
+  worseningStartedAt: date(issue.worsening_started_at),
+  latestEvaluationId: id(issue.latest_evaluation_id),
+  latestEvaluationStatus: text(issue.latest_evaluation_status, 32),
+  latestEvaluationResult: text(issue.latest_evaluation_result, 32),
+  latestEvaluationConfidence: text(issue.latest_evaluation_confidence, 32),
+  latestEvaluationAt: date(issue.latest_evaluation_at),
   scope: {
     version: safeHistoricalNumber(issue?.scope?.version),
     entity: {

@@ -60,15 +60,21 @@ export const buildIssueObservationKey = ({ fingerprint, reportRun } = {}) => {
 const narrativeDataLevel = (reportRun) =>
   String(reportRun?.narrative?.dataQuality?.level || "").toLowerCase();
 
-export const classifyCleanIssueObservation = ({ reportRun, issue = null } = {}) => {
+export const hasTrustedIssueObservationAuthority = (reportRun) => {
   const narrative = reportRun?.narrative || {};
   const comparisonMode = reportRun?.comparison?.mode || narrative?.comparisonMode;
-  const trustedBase =
-    Boolean(reportRun?.meta_binding_performance_validated_at) &&
+  return Boolean(
+    reportRun?.meta_binding_performance_validated_at &&
     narrative.status === "ok" &&
     comparisonMode === "scheduled_window" &&
     narrative?.trustGate?.blocked === false &&
-    ["strong", "usable"].includes(narrativeDataLevel(reportRun));
+    ["strong", "usable"].includes(narrativeDataLevel(reportRun))
+  );
+};
+
+export const classifyCleanIssueObservation = ({ reportRun, issue = null } = {}) => {
+  const narrative = reportRun?.narrative || {};
+  const trustedBase = hasTrustedIssueObservationAuthority(reportRun);
 
   if (!trustedBase) {
     return { trustedBase: false, clean: false, reason: "untrusted_observation" };
@@ -84,6 +90,38 @@ export const classifyCleanIssueObservation = ({ reportRun, issue = null } = {}) 
       : stablePerformance
         ? "stable_performance"
         : "non_clean_observation",
+  };
+};
+
+const normalizedMetric = (value) => String(value || "").trim().toLowerCase() || null;
+
+export const classifyPostInterventionBadObservation = ({ issue, signal, reportRun, observedAt } = {}) => {
+  const metric = normalizedMetric(signal?.metadata?.primary_anomaly?.metric);
+  const expectedMetric = normalizedMetric(
+    issue?.worsening_metric ||
+    issue?.latest_evidence?.primary_metric ||
+    issue?.metric_family
+  );
+  const delta = Number(signal?.metadata?.primary_anomaly?.delta);
+  const material = signal?.metadata?.primary_anomaly?.material === true || (Number.isFinite(delta) && Math.abs(delta) >= 10);
+  const authority = hasTrustedIssueObservationAuthority(reportRun);
+  const boundary = issue?.status === "resolved" ? issue?.resolved_at : issue?.monitoring_started_at || issue?.last_intervention_at;
+  const afterBoundary = !boundary || !observedAt || new Date(observedAt) >= new Date(boundary);
+  const sameMetric = Boolean(metric && expectedMetric && metric === expectedMetric);
+  const eligibleForStreak = authority && material && sameMetric && afterBoundary;
+  const criticalImmediate =
+    eligibleForStreak &&
+    signal?.severity === "critical" &&
+    narrativeDataLevel(reportRun) === "strong";
+  return {
+    authority,
+    material,
+    metric,
+    sameMetric,
+    afterBoundary,
+    eligibleForStreak,
+    criticalImmediate,
+    requiredConsecutive: 2,
   };
 };
 

@@ -17,6 +17,7 @@ import {
   INTERVENTION_LIMITS,
   buildInterventionRequestHash,
   createInterventionError,
+  isActionableIntervention,
   normalizeBoundedText,
   normalizeInterventionAction,
   normalizeInterventionIdempotencyKey,
@@ -368,8 +369,23 @@ const interventionRevisionScope = (revision) =>
     ? { $or: [{ intervention_revision: 0 }, { intervention_revision: { $exists: false } }] }
     : { intervention_revision: revision };
 
-const updateIssueCaches = async ({ issue, interventionId, recordedAt, Models, session }) => {
+const updateIssueCaches = async ({ issue, intervention, recordedAt, Models, session }) => {
   const interventionRevision = issue.intervention_revision || 0;
+  const startsMonitoring =
+    ["open", "monitoring"].includes(issue.status) &&
+    isActionableIntervention(intervention);
+  const lifecycleSet = startsMonitoring ? {
+    status: "monitoring",
+    active_fingerprint: issue.fingerprint,
+    resolved_at: null,
+    monitoring_started_at: recordedAt,
+    monitoring_reason: "actionable_intervention_recorded",
+    monitoring_intervention_id: intervention._id,
+    absence_streak: 0,
+    worsening_streak: 0,
+    worsening_metric: null,
+    worsening_started_at: null,
+  } : {};
   const updated = await Models.Issue.findOneAndUpdate(
     {
       $and: [
@@ -383,10 +399,14 @@ const updateIssueCaches = async ({ issue, interventionId, recordedAt, Models, se
     },
     {
       $set: {
-        latest_intervention_id: interventionId,
+        latest_intervention_id: intervention._id,
         last_intervention_at: recordedAt,
+        ...lifecycleSet,
       },
-      $inc: { intervention_count: 1, intervention_revision: 1 },
+      $inc: {
+        intervention_count: 1,
+        intervention_revision: 1,
+      },
     },
     { new: true, session }
   );
@@ -612,7 +632,7 @@ export const createIntervention = async ({
             );
             await updateIssueCaches({
               issue: context.issue,
-              interventionId: intervention._id,
+              intervention,
               recordedAt: now,
               Models,
               session,
@@ -799,7 +819,7 @@ export const correctIntervention = async ({
               }],
               { session }
             );
-            await updateIssueCaches({ issue: context.issue, interventionId: successor._id, recordedAt: now, Models, session });
+            await updateIssueCaches({ issue: context.issue, intervention: successor, recordedAt: now, Models, session });
             await recordInterventionActivity({ type: "intervention_corrected", intervention: successor, recorder: context.recorder, Models, session });
             return { intervention: successor, supersededIntervention: transitioned, idempotentReplay: false };
           },

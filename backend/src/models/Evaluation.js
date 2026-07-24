@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 import {
+  EVALUATION_CONFIDENCE_LEVELS,
   EVALUATION_INTERPRETABILITY,
   EVALUATION_INTENT_MODES,
   EVALUATION_LIMITS,
@@ -100,6 +101,48 @@ const metricResultSchema = new mongoose.Schema(
   { _id: false, strict: "throw" }
 );
 
+const materialThresholdSchema = new mongoose.Schema(
+  {
+    relative: { type: Number, min: 0, required: true },
+    absolute: { type: Number, min: 0, required: true },
+  },
+  { _id: false, strict: "throw" }
+);
+
+const noiseBoundarySchema = new mongoose.Schema(
+  {
+    relative: { type: Number, min: 0, required: true },
+    absolute: { type: Number, min: 0, required: true },
+    requires_both: { type: Boolean, required: true },
+  },
+  { _id: false, strict: "throw" }
+);
+
+const minimumEvidenceSchema = new mongoose.Schema(
+  {
+    spend: { type: Number, min: 0, default: null },
+    impressions: { type: Number, min: 0, default: null },
+    clicks: { type: Number, min: 0, default: null },
+    conversions: { type: Number, min: 0, default: null },
+  },
+  { _id: false, strict: "throw" }
+);
+
+const thresholdSnapshotSchema = new mongoose.Schema(
+  {
+    metric: { type: String, enum: EVALUATION_METRICS, required: true },
+    directionality: { type: String, enum: ["higher_is_better", "lower_is_better", "context_only"], required: true },
+    unit: { type: String, enum: ["percent", "currency", "ratio", "count"], required: true },
+    material_improvement: { type: materialThresholdSchema, required: true },
+    material_worsening: { type: materialThresholdSchema, required: true },
+    noise_boundary: { type: noiseBoundarySchema, required: true },
+    minimum_evidence: { type: minimumEvidenceSchema, required: true },
+    requires_attribution: { type: Boolean, required: true },
+    requires_conversion_value: { type: Boolean, required: true },
+  },
+  { _id: false, strict: "throw" }
+);
+
 const invalidationSchema = new mongoose.Schema(
   {
     reason: { type: String, enum: ["intervention_superseded", "intervention_cancelled"], required: true },
@@ -143,7 +186,22 @@ const evaluationSchema = new mongoose.Schema(
       immutable: true,
       validate: boundedArray(EVALUATION_LIMITS.watchedMetrics, "Evaluation metric results"),
     },
+    threshold_snapshots: {
+      type: [thresholdSnapshotSchema],
+      default: [],
+      immutable: true,
+      validate: boundedArray(EVALUATION_LIMITS.watchedMetrics, "Evaluation threshold snapshots"),
+    },
     observed_result: { type: String, enum: [...EVALUATION_RESULTS, null], default: null, immutable: true },
+    confidence_level: { type: String, enum: EVALUATION_CONFIDENCE_LEVELS, required: true, immutable: true },
+    confidence_score: { type: Number, min: 0, max: 100, default: null, immutable: true },
+    confidence_factors: {
+      type: [{ type: String, maxlength: 128 }],
+      default: [],
+      immutable: true,
+      validate: boundedArray(EVALUATION_LIMITS.confidenceFactors, "Evaluation confidence factors"),
+    },
+    confidence_version: { type: Number, min: 1, required: true, immutable: true },
     interpretability: { type: String, enum: EVALUATION_INTERPRETABILITY, required: true, immutable: true },
     reason_codes: {
       type: [{ type: String, maxlength: 128 }],

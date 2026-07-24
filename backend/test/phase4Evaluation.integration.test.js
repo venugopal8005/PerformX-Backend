@@ -83,6 +83,14 @@ const seed = async () => {
       classification: { archetype: "engagement", metric_family: "ctr" },
       comparison: { cadence: "daily", timezone: "UTC" },
     },
+    latest_intervention_id: ids.intervention,
+    monitoring_intervention_id: ids.intervention,
+    monitoring_started_at: new Date("2026-01-02T12:00:00Z"),
+    monitoring_reason: "actionable_intervention_recorded",
+    intervention_revision: 1,
+    intervention_count: 1,
+    lifecycle_revision: 0,
+    status: "monitoring",
   });
   await db.collection("report_runs").insertMany([
     { _id: ids.actionRun, agency_id: ids.agency, client_id: ids.client, report_id: ids.report, meta_ad_account_id: ids.account, meta_binding_revision_snapshot: 1, trigger_type: "scheduled", monitored_campaigns: [{ campaign_id: "campaign-1", campaign_name: "Campaign" }], ran_at: new Date("2026-01-02T08:00:00Z") },
@@ -100,10 +108,38 @@ test("transaction persists a ready Evaluation, advances Series, and writes bound
   assert.equal(result.created, true);
   assert.equal(result.evaluation.status, "ready");
   assert.equal(result.evaluation.observed_result, "improved");
+  assert.equal(result.evaluation.confidence_level, "medium");
+  const issue = await Issue.findById(ids.issue);
+  assert.equal(String(issue.latest_evaluation_id), String(result.evaluation._id));
+  assert.equal(issue.latest_evaluation_status, "ready");
+  assert.equal(issue.latest_evaluation_result, "improved");
+  assert.equal(issue.latest_evaluation_confidence, "medium");
+  assert.equal(issue.status, "monitoring");
+  assert.equal(issue.absence_streak, 0);
   const series = await EvaluationSeries.findOne({ agency_id: ids.agency, intervention_id: ids.intervention });
   assert.equal(String(series.current_evaluation_id), String(result.evaluation._id));
   assert.equal(series.next_sequence, 2);
   assert.equal(await mongoose.connection.collection("activities").countDocuments({ type: "evaluation_created" }), 1);
+});
+
+test("insufficient follow-up evidence leaves the Intervention active and the Issue unresolved", async () => {
+  const ids = await seed();
+  await ReportRun.collection.deleteOne({ _id: ids.followRun });
+
+  const result = await processInterventionEvaluation({
+    agencyId: ids.agency,
+    interventionId: ids.intervention,
+    triggerType: "reconciliation",
+    now: new Date("2026-01-20T00:00:00Z"),
+  });
+
+  assert.equal(result.evaluation.status, "insufficient_data");
+  assert.equal(result.evaluation.observed_result, null);
+  assert.equal(result.evaluation.confidence_level, "low");
+  assert.equal((await Intervention.findById(ids.intervention)).status, "active");
+  const issue = await Issue.findById(ids.issue);
+  assert.equal(issue.status, "monitoring");
+  assert.equal(issue.latest_evaluation_status, "insufficient_data");
 });
 
 test("Evaluation creation and Series advancement remain committed when Review projection fails", async () => {
@@ -672,7 +708,16 @@ for (const lifecycle of ["superseded", "cancelled"]) {
     assert.equal(String(series.current_evaluation_id), String(history[1]._id));
     assert.equal(series.next_sequence, 3);
     assert.equal(await Activity.collection.countDocuments({ type: "evaluation_invalidated" }), 1);
-    assert.deepEqual(await Issue.collection.findOne({ _id: ids.issue }), issueBefore);
+    const issueAfter = await Issue.collection.findOne({ _id: ids.issue });
+    assert.equal(issueAfter.status, issueBefore.status);
+    assert.equal(issueAfter.lifecycle_revision, issueBefore.lifecycle_revision);
+    assert.equal(issueAfter.intervention_revision, issueBefore.intervention_revision);
+    assert.equal(String(issueAfter.latest_intervention_id), String(issueBefore.latest_intervention_id));
+    assert.equal(issueAfter.evaluation_revision, issueBefore.evaluation_revision + 1);
+    assert.equal(String(issueAfter.latest_evaluation_id), String(history[1]._id));
+    assert.equal(issueAfter.latest_evaluation_status, "invalidated");
+    assert.equal(issueAfter.latest_evaluation_result, null);
+    assert.equal(issueAfter.latest_evaluation_confidence, "unavailable");
     assert.equal((await Intervention.collection.findOne({ _id: ids.intervention })).status, lifecycle);
   });
 }
