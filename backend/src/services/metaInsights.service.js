@@ -19,7 +19,23 @@ const META_INSIGHT_FIELDS = [
   "action_values",
   "purchase_roas",
   "cost_per_action_type",
+  "action_attribution_windows",
 ].join(",");
+
+const PURCHASE_ACTION_TYPES = [
+  "purchase",
+  "omni_purchase",
+  "offsite_conversion.fb_pixel_purchase",
+];
+const CONVERSION_ACTION_TYPES = [
+  "purchase",
+  "lead",
+  "complete_registration",
+  "submit_application",
+  "schedule_total",
+  "onsite_conversion.messaging_conversation_started_7d",
+  "offsite_conversion.fb_pixel_purchase",
+];
 
 const toNumber = (value) => {
   if (value === null || value === undefined || value === "") return 0;
@@ -44,6 +60,31 @@ const safeDivide = (numerator, denominator) => {
 const formatAdAccountId = (adAccountId) => {
   const value = String(adAccountId || "").trim();
   return value.startsWith("act_") ? value : `act_${value}`;
+};
+
+const normalizeAttributionWindows = (value) => {
+  if (!Array.isArray(value)) return null;
+  const normalized = value.map((item) => String(item || "").trim().toLowerCase());
+  if (normalized.some((item) => !item)) return null;
+  return [...new Set(normalized)].sort();
+};
+
+const attributionContextFromRows = (rows, requestedWindows) => {
+  const requested = normalizeAttributionWindows(requestedWindows);
+  if (requested?.length) {
+    return { windows: requested, source: "request", comparable: true };
+  }
+  const observed = rows.map((row) =>
+    normalizeAttributionWindows(row?.action_attribution_windows ?? row?.attribution_windows)
+  );
+  const supplied = observed.filter((item) => item?.length);
+  if (!supplied.length) return { windows: [], source: "unavailable", comparable: false };
+  const signatures = new Set(supplied.map((item) => JSON.stringify(item)));
+  const complete = supplied.length === rows.length;
+  if (!complete || signatures.size !== 1) {
+    return { windows: [], source: "response_rows", comparable: false };
+  }
+  return { windows: supplied[0], source: "response_rows", comparable: true };
 };
 
 const sumActionValues = (actions = [], actionTypes = []) => {
@@ -79,15 +120,7 @@ export const normalizeMetaInsightRow = (row = {}) => {
   const impressions = toNumber(row.impressions);
   const clicks = toNumber(row.clicks);
   const reach = toNumber(row.reach);
-  const conversions = sumActionValues(row.actions, [
-    "purchase",
-    "lead",
-    "complete_registration",
-    "submit_application",
-    "schedule_total",
-    "onsite_conversion.messaging_conversation_started_7d",
-    "offsite_conversion.fb_pixel_purchase",
-  ]);
+  const conversions = sumActionValues(row.actions, CONVERSION_ACTION_TYPES);
   const ctr = toNumber(row.ctr) || safeDivide(clicks * 100, impressions);
   const cpc = toNumber(row.cpc) || safeDivide(spend, clicks);
   const cpm = toNumber(row.cpm) || safeDivide(spend * 1000, impressions);
@@ -115,22 +148,27 @@ export const normalizeMetaInsightRow = (row = {}) => {
     roas: round(roas, 2),
     cpa: round(cpa, 2),
     conversionRate: round(safeDivide(conversions * 100, clicks), 2),
+    action_attribution_windows: normalizeAttributionWindows(
+      row.action_attribution_windows ?? row.attribution_windows
+    ),
   };
 };
 
 export const aggregateMetaMetrics = (rows = []) => {
-  const normalizedRows = rows.map(normalizeMetaInsightRow);
-  const totals = normalizedRows.reduce(
-    (acc, row) => {
-      acc.impressions += row.impressions;
-      acc.clicks += row.clicks;
-      acc.spend += row.spend;
-      acc.reach += row.reach;
-      acc.conversions += row.conversions;
-      if (row.roas > 0) {
-        acc.roasTotal += row.roas;
-        acc.roasCount += 1;
-      }
+  const totals = rows.reduce(
+    (acc, rawRow) => {
+      acc.impressions += toNumber(rawRow?.impressions);
+      acc.clicks += toNumber(rawRow?.clicks);
+      acc.spend += toNumber(rawRow?.spend);
+      acc.reach += toNumber(rawRow?.reach);
+      acc.conversions += sumActionValues(
+        rawRow?.actions,
+        CONVERSION_ACTION_TYPES
+      );
+      acc.conversionValue += sumActionValues(
+        rawRow?.action_values,
+        PURCHASE_ACTION_TYPES
+      );
       return acc;
     },
     {
@@ -139,8 +177,7 @@ export const aggregateMetaMetrics = (rows = []) => {
       spend: 0,
       reach: 0,
       conversions: 0,
-      roasTotal: 0,
-      roasCount: 0,
+      conversionValue: 0,
     }
   );
 
@@ -154,7 +191,7 @@ export const aggregateMetaMetrics = (rows = []) => {
     cpc: round(safeDivide(totals.spend, totals.clicks), 2),
     cpm: round(safeDivide(totals.spend * 1000, totals.impressions), 2),
     frequency: round(safeDivide(totals.impressions, totals.reach), 2),
-    roas: round(totals.roasCount ? totals.roasTotal / totals.roasCount : 0, 2),
+    roas: round(safeDivide(totals.conversionValue, totals.spend), 2),
     cpa: round(safeDivide(totals.spend, totals.conversions), 2),
     conversionRate: round(safeDivide(totals.conversions * 100, totals.clicks), 2),
   };
@@ -166,6 +203,7 @@ export const fetchMetaInsights = async ({
   dateRange,
   campaigns = [],
   level = "ad",
+  actionAttributionWindows = null,
 }) => {
   if (!accessToken) throw new Error("Meta access token is required");
   if (!adAccountId) throw new Error("Meta ad account id is required");
@@ -183,6 +221,10 @@ export const fetchMetaInsights = async ({
       until: dateRange.end,
     }),
   });
+  const requestedAttributionWindows = normalizeAttributionWindows(actionAttributionWindows);
+  if (requestedAttributionWindows?.length) {
+    params.set("action_attribution_windows", JSON.stringify(requestedAttributionWindows));
+  }
   const campaignIds = campaigns
     .map((campaign) => campaign.campaign_id || campaign.campaignId)
     .filter(Boolean);
@@ -223,7 +265,8 @@ export const fetchMetaInsights = async ({
     rows,
     metrics: aggregateMetaMetrics(rows),
     paging,
+    attributionContext: attributionContextFromRows(rows, requestedAttributionWindows),
   };
 };
 
-export { META_INSIGHT_FIELDS, formatAdAccountId };
+export { META_INSIGHT_FIELDS, attributionContextFromRows, formatAdAccountId };

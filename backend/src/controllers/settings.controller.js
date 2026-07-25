@@ -15,9 +15,9 @@ import mongoose from "mongoose";
 import crypto from "crypto";
 import { recordActivity } from "../services/activityRecorder.service.js";
 import {
-  acquireRequiredClientLifecycleLease,
+  acquireRequiredClientLifecycleLeases,
   fenceClientLifecycleLeaseInTransaction,
-  releaseClientLifecycleLease,
+  releaseClientLifecycleLeases,
   startClientLifecycleLeaseHeartbeat,
 } from "../services/clientLifecycle.service.js";
 import { runRequiredTransaction } from "../services/requiredTransaction.service.js";
@@ -39,6 +39,7 @@ import {
   withOperationalClientScope,
   withOperationalReportScope,
 } from "../utils/archiveScope.js";
+import { closeReviewItemsForAuthority, projectSourceSafely } from "../services/reviewProjection.service.js";
 
 const SCOPE = "Settings";
 const GRAPH_VERSION = "v19.0";
@@ -1599,10 +1600,9 @@ export const getMetaAdAccounts = async (req, res) => {
 };
 
 export const assignMetaAdAccount = async (req, res) => {
-  let lifecycleLease = null;
-  let lifecycleHeartbeat = null;
+  let lifecycleLeases = [];
+  let lifecycleHeartbeats = [];
   let lifecycleAgencyId = null;
-  let lifecycleClientId = null;
 
   try {
     const agencyId = requireAgency(req, res);
@@ -1631,20 +1631,23 @@ export const assignMetaAdAccount = async (req, res) => {
       });
     }
 
+    const assumedSourceClientId = account.client_id?.toString() || null;
+    lifecycleAgencyId = agencyId;
+    lifecycleLeases = await acquireRequiredClientLifecycleLeases({
+      agencyId,
+      clientIds: [assumedSourceClientId, clientId],
+      operation: "meta_assignment",
+    });
+    lifecycleHeartbeats = lifecycleLeases.map((lease) =>
+      startClientLifecycleLeaseHeartbeat({
+        agencyId,
+        clientId: lease.clientId,
+        token: lease.token,
+      })
+    );
+
     let client = null;
     if (clientId) {
-      lifecycleAgencyId = agencyId;
-      lifecycleClientId = clientId;
-      lifecycleLease = await acquireRequiredClientLifecycleLease({
-        agencyId,
-        clientId,
-        operation: "meta_assignment",
-      });
-      lifecycleHeartbeat = startClientLifecycleLeaseHeartbeat({
-        agencyId,
-        clientId,
-        token: lifecycleLease.token,
-      });
       client = await Client.findOne({ _id: clientId, agency_id: agencyId });
       if (!client) {
         return res.status(404).json({
@@ -1701,56 +1704,83 @@ export const assignMetaAdAccount = async (req, res) => {
       });
     }
 
-    if (clientId) {
-      lifecycleHeartbeat.assertOwned();
-      const assignment = await runRequiredTransaction({
-        unavailableCode: "lifecycle_transaction_unavailable",
-        unavailableMessage:
-          "Meta account assignment requires a transaction-capable database deployment.",
-        work: async (session) => {
-          const finalClient = await fenceClientLifecycleLeaseInTransaction({
+    lifecycleHeartbeats.forEach((heartbeat) => heartbeat.assertOwned());
+    const assignment = await runRequiredTransaction({
+      unavailableCode: "lifecycle_transaction_unavailable",
+      unavailableMessage:
+        "Meta account assignment requires a transaction-capable database deployment.",
+      work: async (session) => {
+        const fencedClients = new Map();
+        for (const lease of lifecycleLeases) {
+          const fencedClient = await fenceClientLifecycleLeaseInTransaction({
             agencyId,
-            clientId,
-            token: lifecycleLease.token,
+            clientId: lease.clientId,
+            token: lease.token,
             session,
           });
-          let finalAccount = await MetaAdAccount.findOne({
-            _id: req.params.adAccountId,
-            agency_id: agencyId,
-            is_active: true,
-            is_accessible: true,
-          }).session(session);
-          if (!finalAccount) {
-            const error = new Error("This Meta ad account is no longer accessible.");
-            error.code = "META_ACCOUNT_INACCESSIBLE";
-            error.status = 409;
-            throw error;
-          }
+          fencedClients.set(String(lease.clientId), fencedClient);
+        }
 
-          const finalExistingAccounts = await MetaAdAccount.find({
-            agency_id: agencyId,
-            client_id: clientId,
-            _id: { $ne: finalAccount._id },
-            is_active: true,
-          }).session(session);
-          const finalPreviousClientId = finalAccount.client_id?.toString() || null;
-          const finalMovesFromAnotherClient =
-            Boolean(finalPreviousClientId) && finalPreviousClientId !== String(clientId);
-          const finalReplacesClientAccount = finalExistingAccounts.length > 0;
+        let finalAccount = await MetaAdAccount.findOne({
+          _id: req.params.adAccountId,
+          agency_id: agencyId,
+          is_active: true,
+          is_accessible: true,
+        }).session(session);
+        if (!finalAccount) {
+          const error = new Error("This Meta ad account is no longer accessible.");
+          error.code = "META_ACCOUNT_INACCESSIBLE";
+          error.status = 409;
+          throw error;
+        }
 
-          if (
-            (finalMovesFromAnotherClient || finalReplacesClientAccount) &&
-            !confirmReassignment
-          ) {
-            const error = new Error(
-              "Changing this assignment requires confirmation. Existing reports will keep their current Meta account."
-            );
-            error.code = "META_ACCOUNT_ALREADY_ASSIGNED";
-            error.status = 409;
-            error.requiresConfirmation = true;
-            throw error;
-          }
+        const finalPreviousClientId = finalAccount.client_id?.toString() || null;
+        if (finalPreviousClientId !== assumedSourceClientId) {
+          const error = new Error("The Meta ad account assignment changed. Refresh and try again.");
+          error.code = "META_ASSIGNMENT_STALE_SOURCE";
+          error.status = 409;
+          throw error;
+        }
+        if (finalPreviousClientId && !fencedClients.has(finalPreviousClientId)) {
+          const error = new Error("The Meta ad account source Client is not fenced.");
+          error.code = "META_ASSIGNMENT_SOURCE_NOT_FENCED";
+          error.status = 409;
+          throw error;
+        }
 
+        const finalClient = clientId ? fencedClients.get(String(clientId)) : null;
+        if (clientId && !finalClient) {
+          const error = new Error("The destination Client is not fenced.");
+          error.code = "META_ASSIGNMENT_DESTINATION_NOT_FENCED";
+          error.status = 409;
+          throw error;
+        }
+        const finalExistingAccounts = clientId
+          ? await MetaAdAccount.find({
+              agency_id: agencyId,
+              client_id: clientId,
+              _id: { $ne: finalAccount._id },
+              is_active: true,
+            }).session(session)
+          : [];
+        const finalMovesFromAnotherClient =
+          Boolean(finalPreviousClientId) && finalPreviousClientId !== String(clientId || "");
+        const finalReplacesClientAccount = finalExistingAccounts.length > 0;
+
+        if (
+          (finalMovesFromAnotherClient || finalReplacesClientAccount) &&
+          !confirmReassignment
+        ) {
+          const error = new Error(
+            "Changing this assignment requires confirmation. Existing reports will keep their current Meta account."
+          );
+          error.code = "META_ACCOUNT_ALREADY_ASSIGNED";
+          error.status = 409;
+          error.requiresConfirmation = true;
+          throw error;
+        }
+
+        if (clientId) {
           const finalParentConnection = await MetaConnection.findOne({
             _id: finalAccount.meta_connection_id,
             agency_id: agencyId,
@@ -1765,83 +1795,77 @@ export const assignMetaAdAccount = async (req, res) => {
             error.status = 400;
             throw error;
           }
+        }
 
-          if (finalExistingAccounts.length) {
-            await MetaAdAccount.updateMany(
-              {
-                _id: { $in: finalExistingAccounts.map((item) => item._id) },
-                agency_id: agencyId,
-                client_id: clientId,
-              },
-              {
-                $set: { client_id: null, assignment_scope: null },
-                $inc: { binding_revision: 1 },
-              },
-              { session }
-            );
-          }
-
-          finalAccount = await MetaAdAccount.findOneAndUpdate(
+        if (finalExistingAccounts.length) {
+          await MetaAdAccount.updateMany(
             {
-              _id: finalAccount._id,
+              _id: { $in: finalExistingAccounts.map((item) => item._id) },
               agency_id: agencyId,
-              is_active: true,
-              is_accessible: true,
+              client_id: clientId,
             },
             {
-              $set: {
-                client_id: finalClient._id,
-                assignment_scope: "v1",
-              },
+              $set: { client_id: null, assignment_scope: null },
               $inc: { binding_revision: 1 },
             },
-            { new: true, session }
+            { session }
           );
-          if (!finalAccount) {
-            const error = new Error("This Meta ad account is no longer accessible.");
-            error.code = "META_ACCOUNT_INACCESSIBLE";
-            error.status = 409;
-            throw error;
-          }
+        }
 
-          const finalPreviousClient = finalPreviousClientId
-            ? await Client.findOne({
-                _id: finalPreviousClientId,
-                agency_id: agencyId,
-              })
-                .select("name")
-                .session(session)
-            : null;
-          return {
-            account: finalAccount,
-            client: finalClient,
-            previousClientId: finalPreviousClientId,
-            previousClient: finalPreviousClient,
-            existingClientAccounts: finalExistingAccounts,
-            movesFromAnotherClient: finalMovesFromAnotherClient,
-            replacesClientAccount: finalReplacesClientAccount,
-          };
-        },
-      });
-      ({
-        account,
-        client,
-        previousClientId,
-        previousClient,
-        existingClientAccounts,
-        movesFromAnotherClient,
-        replacesClientAccount,
-      } = assignment);
-    } else {
-      account = await MetaAdAccount.findOneAndUpdate(
-        { _id: account._id, agency_id: agencyId },
-        {
-          $set: { client_id: null, assignment_scope: null },
-          $inc: { binding_revision: 1 },
-        },
-        { new: true }
-      );
-    }
+        finalAccount = await MetaAdAccount.findOneAndUpdate(
+          {
+            _id: finalAccount._id,
+            agency_id: agencyId,
+            is_active: true,
+            is_accessible: true,
+            ...(finalPreviousClientId
+              ? { client_id: finalPreviousClientId }
+              : { $or: [{ client_id: null }, { client_id: { $exists: false } }] }),
+          },
+          {
+            $set: {
+              client_id: finalClient?._id || null,
+              assignment_scope: finalClient ? "v1" : null,
+            },
+            $inc: { binding_revision: 1 },
+          },
+          { new: true, session }
+        );
+        if (!finalAccount) {
+          const error = new Error("The Meta ad account assignment changed. Refresh and try again.");
+          error.code = "META_ASSIGNMENT_STALE_SOURCE";
+          error.status = 409;
+          throw error;
+        }
+
+        const finalPreviousClient = finalPreviousClientId
+          ? await Client.findOne({
+              _id: finalPreviousClientId,
+              agency_id: agencyId,
+            })
+              .select("name")
+              .session(session)
+          : null;
+        return {
+          account: finalAccount,
+          client: finalClient,
+          previousClientId: finalPreviousClientId,
+          previousClient: finalPreviousClient,
+          existingClientAccounts: finalExistingAccounts,
+          movesFromAnotherClient: finalMovesFromAnotherClient,
+          replacesClientAccount: finalReplacesClientAccount,
+        };
+      },
+    });
+    ({
+      account,
+      client,
+      previousClientId,
+      previousClient,
+      existingClientAccounts,
+      movesFromAnotherClient,
+      replacesClientAccount,
+    } = assignment);
 
     const activityType = !clientId
       ? "meta_account_unassigned"
@@ -1874,6 +1898,18 @@ export const assignMetaAdAccount = async (req, res) => {
       },
     }).catch(() => null);
 
+    let reviewBudget = 50;
+    const changedAccountIds = [account._id, ...existingClientAccounts.map((item) => item._id)];
+    for (const changedAccountId of changedAccountIds) {
+      if (reviewBudget <= 0) break;
+      const projected = await projectSourceSafely(
+        closeReviewItemsForAuthority,
+        { agencyId, accountId: changedAccountId, limit: reviewBudget, now: new Date() },
+        { operation: "meta_assignment_post_commit" }
+      );
+      reviewBudget -= Number(projected?.processed || 0);
+    }
+
     const populated = await MetaAdAccount.findById(account._id)
       .populate("client_id", "name status")
       .populate(
@@ -1900,13 +1936,14 @@ export const assignMetaAdAccount = async (req, res) => {
           : err.message || "Failed to assign Meta ad account",
     });
   } finally {
-    if (lifecycleHeartbeat) await lifecycleHeartbeat.stop();
-    if (lifecycleLease) {
-      await releaseClientLifecycleLease({
+    for (const heartbeat of [...lifecycleHeartbeats].reverse()) {
+      await heartbeat.stop();
+    }
+    if (lifecycleLeases.length) {
+      await releaseClientLifecycleLeases({
         agencyId: lifecycleAgencyId,
-        clientId: lifecycleClientId,
-        token: lifecycleLease.token,
-      }).catch(() => null);
+        leases: lifecycleLeases,
+      });
     }
   }
 };
@@ -2014,6 +2051,12 @@ export const removeMetaAdAccount = async (req, res) => {
         },
         $inc: { binding_revision: 1 },
       }
+    );
+
+    await projectSourceSafely(
+      closeReviewItemsForAuthority,
+      { agencyId, accountId: account._id, limit: 50, now: new Date() },
+      { operation: "meta_account_remove_post_commit" }
     );
 
     return res.json({

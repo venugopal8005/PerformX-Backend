@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import { Signal } from "../models/Signal.js";
 import { ReportRun } from "../models/ReportRun.js";
 import { buildSignalContextSnapshotFromReportRun } from "./historicalContextSnapshot.service.js";
@@ -51,6 +53,57 @@ const signalTypeFromNarrative = (narrative) => {
   return "metric_anomaly";
 };
 
+const signalTypeFromMetric = (metric) => {
+  const normalized = String(metric || "").trim().toLowerCase();
+  if (normalized === "ctr") return "ctr_decline";
+  if (normalized === "roas") return "roas_drop";
+  if (normalized === "cpm") return "cpm_spike";
+  if (normalized === "frequency") return "frequency_spike";
+  return "metric_anomaly";
+};
+
+const qualifyingNegativeAnomalies = (narrative) => {
+  const anomalies = Array.isArray(narrative?.rankedAnomalies)
+    ? narrative.rankedAnomalies
+    : [];
+  const explicit = anomalies.filter(
+    (anomaly) => anomaly?.direction === "bad" && anomaly?.usable !== false
+  );
+  if (explicit.length) return explicit;
+  // Older narrator payloads did not persist direction/usable. Preserve their
+  // established primary-Signal behavior without treating every unclassified
+  // row as a separate anomaly.
+  return anomalies[0] ? [anomalies[0]] : [{}];
+};
+
+const canonicalPeriodIdentity = (comparison, narrative) => {
+  const period = comparison?.period || narrative?.period || {};
+  const normalizeWindow = (window) => ({
+    start: window?.start || window?.since || null,
+    end: window?.end || window?.until || null,
+  });
+  return {
+    current: normalizeWindow(period.current),
+    previous: normalizeWindow(period.previous),
+  };
+};
+
+export const buildSignalObservationKey = ({ reportRunId, signal, comparison, narrative }) =>
+  crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify({
+        version: 1,
+        reportRunId: String(reportRunId),
+        campaignId: signal.campaign_id || null,
+        category: signal.type,
+        metric: signal.metadata?.primary_anomaly?.metric || null,
+        narratorStatus: signal.metadata?.narrator_status || null,
+        period: canonicalPeriodIdentity(comparison, narrative),
+      })
+    )
+    .digest("hex");
+
 const buildInsufficientDataSignal = ({ report, narrative, comparison }) => ({
   agency_id: report.agency_id,
   client_id: report.client_id,
@@ -92,20 +145,28 @@ export const buildSignalsFromNarrative = ({ report, narrative, comparison }) => 
     return [];
   }
 
-  const primaryAnomaly = narrative.rankedAnomalies?.[0] || null;
-
-  return [
-    {
+  const anomalies = qualifyingNegativeAnomalies(narrative);
+  const signals = anomalies.map((anomaly, index) => {
+    const isPrimary = index === 0;
+    const type = isPrimary
+      ? signalTypeFromNarrative(narrative)
+      : signalTypeFromMetric(anomaly?.metric);
+    const archetypeId = isPrimary
+      ? narrative.likelyCause?.id
+      : type === "metric_anomaly"
+        ? "metric_anomaly"
+        : type;
+    return {
       agency_id: report.agency_id,
       client_id: report.client_id,
       report_id: report._id,
       campaign_id: narrative.campaign?.id || null,
-      type: signalTypeFromNarrative(narrative),
+      type,
       severity,
       title:
-        narrative.userInsight?.headline ||
-        narrative.likelyCause?.archetype ||
-        "Operational signal detected",
+        (isPrimary && narrative.userInsight?.headline) ||
+        (isPrimary && narrative.likelyCause?.archetype) ||
+        `${anomaly?.label || anomaly?.metric || "Metric"} needs attention`,
       description: narrative.executiveSummary,
       recommendation:
         narrative.userInsight?.decisionBrief?.primaryAction ||
@@ -113,11 +174,11 @@ export const buildSignalsFromNarrative = ({ report, narrative, comparison }) => 
         null,
       metadata: {
         narrator_status: narrative.status,
-        archetype_id: narrative.likelyCause?.id,
-        archetype: narrative.likelyCause?.archetype,
+        archetype_id: archetypeId,
+        archetype: isPrimary ? narrative.likelyCause?.archetype : null,
         decision: narrative.userInsight?.decisionBrief?.decision || null,
         key_delta: narrative.keyDelta,
-        primary_anomaly: primaryAnomaly,
+        primary_anomaly: anomaly,
         deltas: narrative.metrics?.deltas || {},
         current_metrics: comparison?.currentPeriodMetrics || narrative.metrics?.current,
         previous_metrics: comparison?.previousPeriodMetrics || narrative.metrics?.previous,
@@ -125,8 +186,26 @@ export const buildSignalsFromNarrative = ({ report, narrative, comparison }) => 
         recommendations: narrative.recommendations || [],
       },
       detected_at: new Date(),
-    },
-  ];
+    };
+  });
+
+  const dataQualityLevel = String(narrative.dataQuality?.level || "").toLowerCase();
+  if (
+    narrative.trustGate?.blocked === true ||
+    ["weak", "insufficient"].includes(dataQualityLevel)
+  ) {
+    signals.push({
+      ...buildInsufficientDataSignal({ report, narrative, comparison }),
+      campaign_id: narrative.campaign?.id || null,
+      metadata: {
+        ...buildInsufficientDataSignal({ report, narrative, comparison }).metadata,
+        narrator_status: narrative.status,
+        trust_gate: narrative.trustGate || null,
+      },
+    });
+  }
+
+  return signals;
 };
 
 export const saveSignalsFromNarrative = async ({
@@ -145,34 +224,58 @@ export const saveSignalsFromNarrative = async ({
   if (reportRunId) {
     const historicalReportRun =
       reportRun || (await ReportRunModel.findById(reportRunId));
-    const contextSnapshot = historicalReportRun
-      ? buildSignalContextSnapshotFromReportRun({
-          reportRun: historicalReportRun,
-          campaignId: signals[0].campaign_id,
-          capturedAt:
-            historicalReportRun.context_snapshot?.captured_at ||
-            historicalReportRun.started_at ||
-            signals[0].detected_at,
-        })
-      : null;
-    const document = {
-      ...signals[0],
-      report_run_id: reportRunId,
-      ...(contextSnapshot ? { context_snapshot: contextSnapshot } : {}),
-    };
+    const persisted = [];
+    for (const candidate of signals) {
+      const observationKey = buildSignalObservationKey({
+        reportRunId,
+        signal: candidate,
+        comparison,
+        narrative,
+      });
+      const contextSnapshot = historicalReportRun
+        ? buildSignalContextSnapshotFromReportRun({
+            reportRun: historicalReportRun,
+            campaignId: candidate.campaign_id,
+            capturedAt:
+              historicalReportRun.context_snapshot?.captured_at ||
+              historicalReportRun.started_at ||
+              candidate.detected_at,
+          })
+        : null;
+      const document = {
+        ...candidate,
+        report_run_id: reportRunId,
+        observation_key: observationKey,
+        observation_identity_version: 1,
+        ...(contextSnapshot ? { context_snapshot: contextSnapshot } : {}),
+      };
 
-    try {
-      const signal = await SignalModel.findOneAndUpdate(
-        { report_run_id: reportRunId },
-        { $setOnInsert: document },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
-      return signal ? [signal] : [];
-    } catch (error) {
-      if (error?.code !== 11000) throw error;
-      const existing = await SignalModel.findOne({ report_run_id: reportRunId });
-      return existing ? [existing] : [];
+      try {
+        const signal = await SignalModel.findOneAndUpdate(
+          {
+            agency_id: candidate.agency_id,
+            report_run_id: reportRunId,
+            observation_key: observationKey,
+          },
+          { $setOnInsert: document },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+        if (signal) persisted.push(signal);
+      } catch (error) {
+        if (error?.code !== 11000) throw error;
+        const existing = await SignalModel.findOne({
+          agency_id: candidate.agency_id,
+          report_run_id: reportRunId,
+          observation_key: observationKey,
+        });
+        if (existing) persisted.push(existing);
+      }
     }
+    return persisted.sort((left, right) =>
+      String(left.observation_key || "").localeCompare(
+        String(right.observation_key || "")
+      )
+    );
   }
 
   return SignalModel.insertMany(signals);

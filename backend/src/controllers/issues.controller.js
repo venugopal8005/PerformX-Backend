@@ -22,6 +22,7 @@ import {
   serializeIssueListItem,
   serializeIssueSignalOccurrence,
 } from "../utils/issueSerializers.js";
+import { getIssueTimeline as getIssueTimelineService } from "../services/issueTimeline.service.js";
 
 const invalidFilter = (message = "Issue filter is invalid.") => {
   const error = new Error(message);
@@ -80,10 +81,26 @@ export const getIssues = async (req, res) => {
     if (status && !ISSUE_STATUSES.includes(status)) throw invalidFilter("Issue status filter is invalid.");
     if (severity && !ISSUE_SEVERITIES.includes(severity)) throw invalidFilter("Issue severity filter is invalid.");
     const limit = parseHistoryLimit(req.query.limit);
+    const reportIssueIds = reportId
+      ? await Signal.distinct("issue_id", {
+          agency_id: agencyId,
+          report_id: reportId,
+          issue_id: { $type: "objectId" },
+        })
+      : null;
     const query = withCursorScope({
       agency_id: agencyId,
       ...(clientId ? { client_id: clientId } : {}),
-      ...(reportId ? { report_ids: reportId } : {}),
+      ...(reportId
+        ? {
+            $or: [
+              { _id: { $in: reportIssueIds } },
+              // Compatibility only: pre-Phase 3 Issues may not have linked
+              // Signals yet, so retain their persisted legacy lookup path.
+              { report_ids: reportId },
+            ],
+          }
+        : {}),
       ...(metaAdAccountId ? { meta_ad_account_id: metaAdAccountId } : {}),
       ...(status ? { status } : {}),
       ...(severity ? { current_severity: severity } : {}),
@@ -144,5 +161,17 @@ export const getIssueSignals = async (req, res) => {
     });
   } catch (error) {
     return historyRequestError(res, error, "Failed to fetch Issue Signals.");
+  }
+};
+
+export const getIssueTimeline = async (req, res) => {
+  try {
+    const agencyId = req.user?.agencyId;
+    if (!agencyId) return res.status(401).json({ success: false, message: "Agency context missing from auth token" });
+    const result = await getIssueTimelineService({ agencyId, issueId: req.params.issueId, cursor: req.query.cursor, limit: req.query.limit });
+    return res.json({ success: true, timeline: result.entries, page: result.page });
+  } catch (error) {
+    if (["REVIEW_NOT_FOUND", "INVALID_TIMELINE_CURSOR", "REVIEW_VALIDATION_FAILED"].includes(error?.code)) return res.status(error.status || 400).json({ success: false, code: error.code, message: error.message });
+    return historyRequestError(res, error, "Failed to fetch Issue timeline.");
   }
 };

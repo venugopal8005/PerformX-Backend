@@ -29,6 +29,7 @@ import {
   runReport,
 } from "../src/services/reportRunner.service.js";
 import { markExecutionIntegrityReady } from "../src/services/executionIntegrityIndexes.service.js";
+import { saveSignalsFromNarrative } from "../src/services/signalGenerator.service.js";
 import {
   getIssue,
   getIssues,
@@ -317,6 +318,70 @@ test("first and repeated occurrences create one Issue with ordered write-once Si
   assert.equal(issue.trend, "escalating");
   assert.deepEqual(signals.map((item) => item.issue_occurrence_number), [1, 2]);
   assert.equal(signals.every((item) => String(item.issue_id) === String(issue._id)), true);
+});
+
+test("one ReportRun creates and independently matches multiple deterministic metric Signals", async () => {
+  const domain = await createDomain();
+  const reportRun = await createRun(domain, {
+    start: "2026-07-10",
+    signal: false,
+    narrative: {
+      status: "ok",
+      severity: { level: "high" },
+      executiveSummary: "CTR, CPA, and ROAS independently need attention.",
+      likelyCause: { id: "creative_fatigue", archetype: "Creative fatigue" },
+      campaign: { id: "campaign-1", name: "Campaign One" },
+      rankedAnomalies: [
+        { metric: "ctr", label: "CTR", delta: -30, direction: "bad", usable: true },
+        { metric: "cpa", label: "CPA", delta: 45, direction: "bad", usable: true },
+        { metric: "roas", label: "ROAS", delta: -25, direction: "bad", usable: true },
+      ],
+      dataQuality: { level: "strong" },
+      trustGate: { blocked: false },
+    },
+  });
+  const input = {
+    report: domain.report,
+    reportRun,
+    reportRunId: reportRun._id,
+    narrative: reportRun.narrative,
+    comparison: reportRun.comparison,
+  };
+  const [workerOne, workerTwo] = await Promise.all([
+    saveSignalsFromNarrative(input),
+    saveSignalsFromNarrative(input),
+  ]);
+  assert.equal(workerOne.length, 3);
+  assert.equal(workerTwo.length, 3);
+  assert.equal(await Signal.countDocuments({ report_run_id: reportRun._id }), 3);
+  assert.equal(
+    (
+      await Signal.distinct("observation_key", {
+        report_run_id: reportRun._id,
+      })
+    ).length,
+    3
+  );
+
+  const outcome = await process(reportRun);
+  assert.equal(outcome.issues.length, 3);
+  assert.equal(await Issue.countDocuments({ agency_id: domain.agency._id }), 3);
+  assert.equal(
+    await Signal.countDocuments({
+      report_run_id: reportRun._id,
+      issue_matching_status: "matched",
+    }),
+    3
+  );
+  assert.deepEqual(
+    (await Issue.distinct("metric_family", { agency_id: domain.agency._id })).sort(),
+    ["cpa", "creative_engagement", "roas"]
+  );
+
+  const replay = await process(reportRun);
+  assert.equal(replay.skipped, true);
+  assert.equal(await Issue.countDocuments({ agency_id: domain.agency._id }), 3);
+  assert.equal(await Signal.countDocuments({ report_run_id: reportRun._id }), 3);
 });
 
 test("trusted stable-severity negative evidence starts in monitoring", async () => {
@@ -632,6 +697,113 @@ test("data-quality Issue accepts trustworthy data-quality recovery evidence", as
   assert.equal(issue.absence_streak, 1);
 });
 
+test("one moderate post-Intervention observation is tracked and consecutive evidence returns the Issue to open", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-10" }));
+  const interventionId = objectId();
+  await Issue.updateOne({}, {
+    $set: {
+      status: "monitoring",
+      latest_intervention_id: interventionId,
+      monitoring_intervention_id: interventionId,
+      monitoring_started_at: new Date("2026-07-10T13:00:00.000Z"),
+      monitoring_reason: "actionable_intervention_recorded",
+      last_intervention_at: new Date("2026-07-10T13:00:00.000Z"),
+    },
+  });
+
+  await process(await createRun(domain, { start: "2026-07-11", severity: "moderate" }));
+  let issue = await Issue.findOne({});
+  assert.equal(issue.status, "monitoring");
+  assert.equal(issue.worsening_streak, 1);
+
+  await process(await createRun(domain, { start: "2026-07-12", severity: "moderate" }));
+  issue = await Issue.findOne({});
+  assert.equal(issue.status, "open");
+  assert.equal(issue.worsening_streak, 2);
+  assert.equal(await Issue.countDocuments({}), 1);
+});
+
+test("critical strong-authority post-Intervention evidence returns the Issue to open immediately", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-10" }));
+  const interventionId = objectId();
+  await Issue.updateOne({}, {
+    $set: {
+      status: "monitoring",
+      latest_intervention_id: interventionId,
+      monitoring_intervention_id: interventionId,
+      monitoring_started_at: new Date("2026-07-10T13:00:00.000Z"),
+      monitoring_reason: "actionable_intervention_recorded",
+      last_intervention_at: new Date("2026-07-10T13:00:00.000Z"),
+    },
+  });
+  await process(await createRun(domain, { start: "2026-07-11", severity: "critical" }));
+  const issue = await Issue.findOne({});
+  assert.equal(issue.status, "open");
+  assert.equal(issue.worsening_streak, 1);
+});
+
+test("a clean recovery after one bad post-Intervention observation clears the worsening streak", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-10" }));
+  const interventionId = objectId();
+  await Issue.updateOne({}, {
+    $set: {
+      status: "monitoring",
+      latest_intervention_id: interventionId,
+      monitoring_intervention_id: interventionId,
+      monitoring_started_at: new Date("2026-07-10T13:00:00.000Z"),
+      monitoring_reason: "actionable_intervention_recorded",
+      last_intervention_at: new Date("2026-07-10T13:00:00.000Z"),
+    },
+  });
+  await process(await createRun(domain, { start: "2026-07-11", severity: "moderate" }));
+  await process(await createRun(domain, { start: "2026-07-12", signal: false }));
+  const issue = await Issue.findOne({});
+  assert.equal(issue.status, "monitoring");
+  assert.equal(issue.worsening_streak, 0);
+  assert.equal(issue.worsening_metric, null);
+});
+
+test("intervention-backed resolution requires acceptable improved Evaluation confidence plus clean observations", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-10" }));
+  const interventionId = objectId();
+  await Issue.updateOne({}, {
+    $set: {
+      status: "monitoring",
+      latest_intervention_id: interventionId,
+      monitoring_intervention_id: interventionId,
+      monitoring_started_at: new Date("2026-07-10T13:00:00.000Z"),
+      monitoring_reason: "actionable_intervention_recorded",
+      last_intervention_at: new Date("2026-07-10T13:00:00.000Z"),
+      intervention_count: 1,
+      latest_evaluation_id: objectId(),
+      latest_evaluation_status: "ready",
+      latest_evaluation_result: "improved",
+      latest_evaluation_confidence: "low",
+      latest_evaluation_at: new Date("2026-07-11T13:00:00.000Z"),
+    },
+  });
+  await process(await createRun(domain, { start: "2026-07-11", signal: false }));
+  await process(await createRun(domain, { start: "2026-07-12", signal: false }));
+  let issue = await Issue.findOne({});
+  assert.equal(issue.status, "monitoring");
+  assert.equal(issue.absence_streak, 2);
+
+  await Issue.updateOne({}, {
+    $set: {
+      latest_evaluation_id: objectId(),
+      latest_evaluation_confidence: "high",
+      latest_evaluation_at: new Date("2026-07-12T13:00:00.000Z"),
+    },
+  });
+  await process(await createRun(domain, { start: "2026-07-13", signal: false }));
+  issue = await Issue.findOne({});
+  assert.equal(issue.status, "resolved");
+});
+
 test("retryable transaction failures retry without partial lineage", async () => {
   const domain = await createDomain();
   const run = await createRun(domain, { start: "2026-07-10" });
@@ -653,6 +825,25 @@ test("retryable transaction failures retry without partial lineage", async () =>
   assert.equal(attempts, 2);
   assert.equal(await Issue.countDocuments({}), 1);
   assert.equal(await Signal.countDocuments({ issue_id: { $type: "objectId" } }), 1);
+});
+
+test("Issue matching remains committed when Review projection fails", async () => {
+  const domain = await createDomain();
+  const run = await createRun(domain, { start: "2026-07-10" });
+  let reviewCalls = 0;
+  const result = await processReportRunIssues({
+    reportRunId: run._id,
+    reviewProcessor: async () => {
+      reviewCalls += 1;
+      throw Object.assign(new Error("injected Review projection failure"), { code: "REVIEW_TEST_FAILURE" });
+    },
+  });
+
+  assert.equal(result.classification, "created");
+  assert.equal(reviewCalls, 1);
+  assert.equal(await Issue.countDocuments({ agency_id: domain.agency._id }), 1);
+  assert.equal(await Signal.countDocuments({ report_run_id: run._id, issue_id: { $type: "objectId" } }), 1);
+  assert.equal((await ReportRun.findById(run._id)).issue_processing.status, "completed");
 });
 
 test("corrupted cross-owner Issue lineage fails closed before lifecycle mutation", async () => {
@@ -766,6 +957,37 @@ test("concurrent repeated occurrences allocate complete unique occurrence number
   assert.equal(issue.occurrence_count, 3);
   assert.equal(linked.length, 3);
   assert.deepEqual(linked.map((signal) => signal.issue_occurrence_number), [1, 2, 3]);
+});
+
+test("concurrent workers cannot double-count one post-Intervention observation", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-09" }));
+  const interventionId = objectId();
+  await Issue.updateOne({}, {
+    $set: {
+      status: "monitoring",
+      latest_intervention_id: interventionId,
+      monitoring_intervention_id: interventionId,
+      monitoring_started_at: new Date("2026-07-09T13:00:00.000Z"),
+      monitoring_reason: "actionable_intervention_recorded",
+      last_intervention_at: new Date("2026-07-09T13:00:00.000Z"),
+    },
+  });
+  const [first, duplicate] = await Promise.all([
+    createRun(domain, { start: "2026-07-10", severity: "moderate" }),
+    createRun(domain, { start: "2026-07-10", severity: "moderate" }),
+  ]);
+
+  const outcomes = await Promise.all([process(first), process(duplicate)]);
+  const issue = await Issue.findOne({});
+  const linked = await Signal.find({ issue_id: issue._id });
+
+  assert.deepEqual(outcomes.map((outcome) => outcome.classification).sort(), ["ineligible", "matched"]);
+  assert.equal(issue.status, "monitoring");
+  assert.equal(issue.worsening_streak, 1);
+  assert.equal(issue.occurrence_count, 2);
+  assert.equal(linked.length, 2);
+  assert.equal(await Issue.countDocuments({}), 1);
 });
 
 test("duplicate-key retry reloads and validates the winning Issue scope", async () => {
@@ -921,6 +1143,35 @@ test("Issue list applies agency and operational filters with deterministic pagin
   const invalidResponse = response();
   await getIssues({ user: { agencyId: domain.agency._id }, query: { status: "deleted" } }, invalidResponse);
   assert.equal(invalidResponse.statusCode, 400);
+});
+
+test("report-filtered Issue lists retain legacy report_ids compatibility", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-10" }));
+  const issue = await Issue.findOne({ agency_id: domain.agency._id });
+  await Issue.collection.updateOne(
+    { _id: issue._id },
+    { $set: { report_ids: [domain.report._id] } }
+  );
+  await Signal.updateMany(
+    { issue_id: issue._id },
+    { $unset: { issue_id: 1 } }
+  );
+
+  const legacyResponse = response();
+  await getIssues(
+    {
+      user: { agencyId: domain.agency._id },
+      query: { reportId: String(domain.report._id) },
+    },
+    legacyResponse
+  );
+
+  assert.equal(legacyResponse.statusCode, 200);
+  assert.deepEqual(
+    legacyResponse.body.issues.map((candidate) => candidate.id),
+    [String(issue._id)]
+  );
 });
 
 test("Issue detail is non-disclosing across agencies and remains snapshot-first after parent rename", async () => {

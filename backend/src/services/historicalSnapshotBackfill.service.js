@@ -118,10 +118,16 @@ export const backfillReportRunSnapshots = async ({
       else result.resolvable += 1;
 
       if (apply) {
-        const update = await Models.ReportRun.updateOne(
-          { _id: run._id, ...missingSnapshotQuery },
-          { $set: { context_snapshot: snapshot } }
-        );
+        const update =
+          typeof Models.ReportRun.backfillMissingContextSnapshot === "function"
+            ? await Models.ReportRun.backfillMissingContextSnapshot({
+                reportRunId: run._id,
+                snapshot,
+              })
+            : await Models.ReportRun.updateOne(
+                { _id: run._id, ...missingSnapshotQuery },
+                { $set: { context_snapshot: snapshot } }
+              );
         result.updated += update.modifiedCount || 0;
       }
     }

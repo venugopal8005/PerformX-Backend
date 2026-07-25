@@ -68,6 +68,18 @@ const signalSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "ReportRun",
     },
+    observation_key: {
+      type: String,
+      default: null,
+      immutable: true,
+      match: /^[a-f0-9]{64}$/,
+    },
+    observation_identity_version: {
+      type: Number,
+      enum: [1, null],
+      default: null,
+      immutable: true,
+    },
     context_snapshot: {
       type: signalContextSnapshotSchema,
       default: undefined,
@@ -203,7 +215,25 @@ signalSchema.index({ agency_id: 1, report_id: 1, detected_at: -1 });
 signalSchema.index({ agency_id: 1, report_id: 1, detected_at: -1, _id: -1 });
 signalSchema.index({ agency_id: 1, severity: 1, detected_at: -1 });
 signalSchema.index({ client_id: 1, severity: 1, detected_at: -1 });
-signalSchema.index({ report_run_id: 1 }, { unique: true, sparse: true });
+signalSchema.index(
+  { agency_id: 1, report_run_id: 1, observation_key: 1 },
+  {
+    name: "execution_integrity_report_run_signal_identity_unique",
+    unique: true,
+    partialFilterExpression: {
+      report_run_id: { $type: "objectId" },
+      observation_key: { $type: "string" },
+    },
+  }
+);
+signalSchema.index(
+  { report_run_id: 1, detected_at: 1, _id: 1 },
+  { name: "phase3_signals_report_run_chronology" }
+);
+signalSchema.index(
+  { agency_id: 1, report_id: 1, issue_id: 1 },
+  { name: "phase3_signals_report_issue_lookup" }
+);
 signalSchema.index(
   { agency_id: 1, issue_id: 1, detected_at: -1, _id: -1 },
   { name: "phase2_signals_issue_cursor" }

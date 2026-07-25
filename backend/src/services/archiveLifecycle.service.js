@@ -26,6 +26,7 @@ import {
   withOperationalClientScope,
   withOperationalReportScope,
 } from "../utils/archiveScope.js";
+import { closeReviewItemsForAuthority, projectSourceSafely } from "./reviewProjection.service.js";
 
 const models = {
   Activity,
@@ -206,6 +207,7 @@ export const archiveClientLifecycle = async ({
   now = new Date(),
   mongooseInstance = mongoose,
   Models = models,
+  reviewAuthorityProcessor = closeReviewItemsForAuthority,
 } = {}) => {
   const {
     Activity: ActivityModel,
@@ -249,7 +251,7 @@ export const archiveClientLifecycle = async ({
       now,
       ClientModel,
     });
-    return await runArchiveTransaction({
+    const outcome = await runArchiveTransaction({
       mongooseInstance,
       work: async (session) => {
       const client = await withSession(
@@ -431,6 +433,10 @@ export const archiveClientLifecycle = async ({
       };
       },
     });
+    if (outcome?.outcome === "archived") {
+      await projectSourceSafely(reviewAuthorityProcessor, { agencyId, clientId: outcome.client._id, limit: 50, now }, { operation: "client_archive_post_commit" });
+    }
+    return outcome;
   } finally {
     await lifecycleHeartbeat.stop();
     await releaseClientLifecycleLease({

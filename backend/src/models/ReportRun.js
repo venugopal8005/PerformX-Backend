@@ -5,6 +5,163 @@ import {
   ISSUE_PROCESSING_RESULT_CLASSIFICATIONS,
   ISSUE_PROCESSING_STATUSES,
 } from "../domain/phase2Issue.domain.js";
+import { EVALUATION_LIMITS } from "../domain/phase4Evaluation.domain.js";
+
+const REPORT_RUN_IMMUTABILITY_ERROR = "REPORT_RUN_IMMUTABLE_EVIDENCE";
+const REPORT_RUN_REPLACEMENT_ERROR = "REPORT_RUN_REPLACEMENT_FORBIDDEN";
+const FINALIZED_STAGE = "completed";
+
+const ALWAYS_IMMUTABLE_PATHS = Object.freeze([
+  "agency_id",
+  "client_id",
+  "report_id",
+  "context_snapshot",
+  "meta_ad_account_id",
+  "meta_account_external_id_snapshot",
+  "meta_account_name_snapshot",
+  "meta_binding_revision_snapshot",
+  "triggered_by",
+  "trigger_type",
+  "execution_key",
+  "scheduled_for",
+  "started_at",
+  "ran_at",
+  "monitored_campaigns",
+]);
+
+const FINALIZED_EVIDENCE_PATHS = Object.freeze([
+  "execution_stage",
+  "execution_attempt_count",
+  "artifacts_ready_at",
+  "completed_at",
+  "next_retry_at",
+  "failure",
+  "meta_binding_performance_validated_at",
+  "status",
+  "severity",
+  "summary",
+  "key_delta",
+  "likely_cause",
+  "decision",
+  "next_signal",
+  "period",
+  "comparison",
+  "narrative",
+  "signal_ids",
+  "email_subject",
+  "email_html",
+  "evaluation_evidence",
+  "engine_output",
+  "internal_report.subject",
+  "internal_report.html",
+  "internal_report.text",
+  "client_report.subject",
+  "client_report.html",
+  "client_report.text",
+  "notification.subject",
+  "notification.html",
+  "notification.text",
+]);
+
+const ALLOWED_STAGE_TRANSITIONS = Object.freeze({
+  claimed: new Set(["claimed", "generating", "artifacts_ready", "failed"]),
+  generating: new Set(["generating", "artifacts_ready", "failed"]),
+  artifacts_ready: new Set(["artifacts_ready", "delivering", "completed", "failed"]),
+  delivering: new Set(["delivering", "artifacts_ready", "completed", "failed"]),
+  failed: new Set(["failed", "generating", "artifacts_ready"]),
+  completed: new Set(["completed"]),
+});
+
+const immutableError = (message, code = REPORT_RUN_IMMUTABILITY_ERROR) => {
+  const error = new Error(message);
+  error.code = code;
+  error.status = 409;
+  return error;
+};
+
+const pathMatches = (path, protectedPath) =>
+  path === protectedPath ||
+  path.startsWith(`${protectedPath}.`) ||
+  protectedPath.startsWith(`${path}.`);
+
+const updatePaths = (update = {}) => {
+  if (Array.isArray(update)) {
+    throw immutableError(
+      "ReportRun aggregation-pipeline updates are forbidden.",
+      "REPORT_RUN_UPDATE_PIPELINE_FORBIDDEN"
+    );
+  }
+  const paths = new Set();
+  for (const [operator, value] of Object.entries(update || {})) {
+    if (operator.startsWith("$") && value && typeof value === "object") {
+      Object.keys(value).forEach((path) => paths.add(path));
+      if (operator === "$rename") {
+        Object.values(value).forEach((path) => paths.add(String(path)));
+      }
+    } else if (!operator.startsWith("$")) {
+      paths.add(operator);
+    }
+  }
+  return [...paths];
+};
+
+const updatedStage = (update = {}) =>
+  update?.$set?.execution_stage ?? update?.execution_stage ?? null;
+
+const assertStageTransition = (from, to) => {
+  if (!to || !from || ALLOWED_STAGE_TRANSITIONS[from]?.has(to)) return;
+  throw immutableError(
+    `ReportRun execution stage cannot transition from ${from} to ${to}.`,
+    "REPORT_RUN_STAGE_TRANSITION_INVALID"
+  );
+};
+
+const mutationTouches = (paths, protectedPaths) =>
+  paths.some((path) =>
+    protectedPaths.some((protectedPath) => pathMatches(path, protectedPath))
+  );
+
+const protectReportRunQueryMutation = async function protectMutation() {
+  const update = this.getUpdate() || {};
+  const paths = updatePaths(update);
+  if (!paths.length) return;
+
+  if (mutationTouches(paths, ALWAYS_IMMUTABLE_PATHS)) {
+    throw immutableError("ReportRun execution and ownership identity cannot be changed.");
+  }
+
+  const toStage = updatedStage(update);
+  if (
+    mutationTouches(paths, ["execution_stage"]) &&
+    (typeof toStage !== "string" || !toStage)
+  ) {
+    throw immutableError(
+      "ReportRun execution stage must use an explicit supported transition.",
+      "REPORT_RUN_STAGE_TRANSITION_INVALID"
+    );
+  }
+  const needsLifecycleCheck = Boolean(toStage);
+  const touchesFinalEvidence = mutationTouches(paths, FINALIZED_EVIDENCE_PATHS);
+  if (!needsLifecycleCheck && !touchesFinalEvidence) return;
+
+  const documents = await this.model
+    .find(this.getQuery())
+    .select("_id execution_stage")
+    .lean();
+  for (const document of documents) {
+    assertStageTransition(document.execution_stage, toStage);
+    if (document.execution_stage === FINALIZED_STAGE && touchesFinalEvidence) {
+      throw immutableError("Finalized ReportRun evidence cannot be changed.");
+    }
+  }
+};
+
+const rejectReportRunReplacement = async function rejectReplacement() {
+  throw immutableError(
+    "ReportRun replacement operations are forbidden; use a scoped lifecycle update.",
+    REPORT_RUN_REPLACEMENT_ERROR
+  );
+};
 
 const deliveryRecipientSchema = new mongoose.Schema(
   {
@@ -420,6 +577,91 @@ const reportRunContextSnapshotSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const evaluationWindowSchema = new mongoose.Schema(
+  {
+    start: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
+    end: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
+  },
+  { _id: false, strict: "throw" }
+);
+
+const boundedEvaluationArray = (maximum, label) => ({
+  validator: (value) => Array.isArray(value) && value.length <= maximum,
+  message: `${label} exceed the allowed limit.`,
+});
+
+const evaluationCampaignSnapshotSchema = new mongoose.Schema(
+  {
+    campaign_id: { type: String, trim: true, required: true, maxlength: 256 },
+    campaign_name: { type: String, trim: true, default: null, maxlength: 512 },
+    provenance: { type: String, enum: ["scheduled_window", "scheduled_manual_window", "historical_fallback"], required: true },
+    spend: { type: Number, min: 0, required: true },
+    impressions: { type: Number, min: 0, required: true },
+    clicks: { type: Number, min: 0, required: true },
+    conversions: { type: Number, min: 0, required: true },
+    conversion_value: { type: Number, min: 0, default: null },
+    ctr: { type: Number, min: 0, default: null },
+    cpc: { type: Number, min: 0, default: null },
+    cpm: { type: Number, min: 0, default: null },
+    cpa: { type: Number, min: 0, default: null },
+    roas: { type: Number, min: 0, default: null },
+    conversion_rate: { type: Number, min: 0, default: null },
+    row_count: { type: Number, min: 0, required: true },
+    source_level: { type: String, enum: ["ad", "campaign"], required: true },
+    completeness: { type: String, enum: ["complete", "zero_delivery"], required: true },
+    warnings: {
+      type: [{ type: String, maxlength: 128 }],
+      default: [],
+      validate: boundedEvaluationArray(EVALUATION_LIMITS.warnings, "Campaign evidence warnings"),
+    },
+  },
+  { _id: false, strict: "throw" }
+);
+
+const reportRunEvaluationEvidenceSchema = new mongoose.Schema(
+  {
+    version: { type: Number, enum: [1], required: true },
+    captured_at: { type: Date, required: true },
+    normalization_version: { type: Number, enum: [1], required: true },
+    timezone: { type: String, trim: true, default: null, maxlength: 128 },
+    currency: { type: String, trim: true, default: null, maxlength: 3 },
+    attribution_windows: {
+      type: [{ type: String, maxlength: 64 }],
+      default: [],
+      validate: boundedEvaluationArray(EVALUATION_LIMITS.attributionWindows, "ReportRun attribution windows"),
+    },
+    meta_binding_revision: { type: Number, min: 0, default: null },
+    comparison_mode: { type: String, enum: ["scheduled_window", "historical_fallback", null], default: null },
+    cadence: { type: String, enum: ["daily", "weekly", "monthly", null], default: null },
+    current_window: { type: evaluationWindowSchema, default: null },
+    previous_window: { type: evaluationWindowSchema, default: null },
+    campaign_snapshots: {
+      type: [evaluationCampaignSnapshotSchema],
+      default: [],
+      validate: boundedEvaluationArray(EVALUATION_LIMITS.campaignSnapshots, "ReportRun campaign snapshots"),
+    },
+    completeness: { type: String, enum: ["complete", "ineligible"], required: true },
+    warnings: {
+      type: [{ type: String, maxlength: 128 }],
+      default: [],
+      validate: boundedEvaluationArray(EVALUATION_LIMITS.warnings, "ReportRun evidence warnings"),
+    },
+  },
+  { _id: false, strict: "throw" }
+);
+
+const evaluationProcessingSchema = new mongoose.Schema(
+  {
+    status: { type: String, enum: ["pending", "completed", "skipped"], required: true },
+    cursor: { type: mongoose.Schema.Types.ObjectId, ref: "Intervention", default: null },
+    processed_count: { type: Number, min: 0, default: 0 },
+    attempt_count: { type: Number, min: 0, default: 0 },
+    last_attempt_at: { type: Date, default: null },
+    completed_at: { type: Date, default: null },
+  },
+  { _id: false, strict: "throw" }
+);
+
 const reportRunSchema = new mongoose.Schema(
   {
     agency_id: {
@@ -526,6 +768,14 @@ const reportRunSchema = new mongoose.Schema(
     },
     issue_processing: {
       type: issueProcessingSchema,
+      default: undefined,
+    },
+    evaluation_evidence: {
+      type: reportRunEvaluationEvidenceSchema,
+      default: undefined,
+    },
+    evaluation_processing: {
+      type: evaluationProcessingSchema,
       default: undefined,
     },
     completed_at: {
@@ -642,6 +892,66 @@ const reportRunSchema = new mongoose.Schema(
   }
 );
 
+reportRunSchema.pre("save", async function protectSavedReportRun() {
+  if (this.isNew) return;
+  const paths = this.modifiedPaths();
+  if (mutationTouches(paths, ALWAYS_IMMUTABLE_PATHS)) {
+    throw immutableError("ReportRun execution and ownership identity cannot be changed.");
+  }
+  if (
+    mutationTouches(paths, ["execution_stage"]) &&
+    (typeof this.execution_stage !== "string" || !this.execution_stage)
+  ) {
+    throw immutableError(
+      "ReportRun execution stage must use an explicit supported transition.",
+      "REPORT_RUN_STAGE_TRANSITION_INVALID"
+    );
+  }
+  const persisted = await this.constructor
+    .findById(this._id)
+    .select("_id execution_stage")
+    .lean();
+  if (!persisted) return;
+  assertStageTransition(persisted.execution_stage, this.execution_stage);
+  if (
+    persisted.execution_stage === FINALIZED_STAGE &&
+    mutationTouches(paths, FINALIZED_EVIDENCE_PATHS)
+  ) {
+    throw immutableError("Finalized ReportRun evidence cannot be changed.");
+  }
+});
+
+reportRunSchema.pre(
+  ["updateOne", "updateMany", "findOneAndUpdate"],
+  protectReportRunQueryMutation
+);
+reportRunSchema.pre(
+  ["replaceOne", "findOneAndReplace"],
+  rejectReportRunReplacement
+);
+
+reportRunSchema.static(
+  "backfillMissingContextSnapshot",
+  function backfillMissingContextSnapshot({ reportRunId, snapshot }) {
+    const persistedId = this.schema.path("_id").cast(reportRunId);
+    return this.collection.updateOne(
+      {
+        _id: persistedId,
+        $or: [
+          { context_snapshot: { $exists: false } },
+          { context_snapshot: null },
+        ],
+      },
+      {
+        $set: {
+          context_snapshot: snapshot,
+          updatedAt: new Date(),
+        },
+      }
+    );
+  }
+);
+
 reportRunSchema.index({ agency_id: 1, report_id: 1, ran_at: -1 });
 reportRunSchema.index({ agency_id: 1, report_id: 1, ran_at: -1, _id: -1 });
 reportRunSchema.index({ agency_id: 1, meta_ad_account_id: 1, ran_at: -1 });
@@ -652,5 +962,13 @@ reportRunSchema.index({ execution_key: 1 }, { unique: true, sparse: true });
 
 export const ReportRun =
   mongoose.models.ReportRun || mongoose.model("ReportRun", reportRunSchema);
+
+export const REPORT_RUN_IMMUTABILITY = Object.freeze({
+  finalizedStage: FINALIZED_STAGE,
+  alwaysImmutablePaths: ALWAYS_IMMUTABLE_PATHS,
+  finalizedEvidencePaths: FINALIZED_EVIDENCE_PATHS,
+  errorCode: REPORT_RUN_IMMUTABILITY_ERROR,
+  replacementErrorCode: REPORT_RUN_REPLACEMENT_ERROR,
+});
 
 export default ReportRun;

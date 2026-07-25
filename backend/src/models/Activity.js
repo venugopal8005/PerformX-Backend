@@ -20,6 +20,18 @@ const activitySchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    issue_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Issue",
+      default: null,
+      index: true,
+    },
+    review_item_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ReviewItem",
+      default: null,
+      index: true,
+    },
     user_id: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -54,6 +66,20 @@ const activitySchema = new mongoose.Schema(
         "report_paused",
         "report_started",
         "report_archived",
+        "intervention_recorded",
+        "intervention_corrected",
+        "intervention_cancelled",
+        "evaluation_created",
+        "evaluation_superseded",
+        "evaluation_invalidated",
+        "evaluation_refresh_requested",
+        "review_item_created",
+        "review_item_acknowledged",
+        "review_item_snoozed",
+        "review_item_reviewed",
+        "review_item_reopened",
+        "review_item_superseded",
+        "review_item_closed",
       ],
       required: true,
       index: true,
@@ -90,6 +116,8 @@ activitySchema.index({ agency_id: 1, createdAt: -1 });
 activitySchema.index({ agency_id: 1, client_id: 1, createdAt: -1 });
 activitySchema.index({ agency_id: 1, client_id: 1, createdAt: -1, _id: -1 });
 activitySchema.index({ agency_id: 1, report_id: 1, createdAt: -1 });
+activitySchema.index({ agency_id: 1, issue_id: 1, createdAt: -1, _id: -1 });
+activitySchema.index({ agency_id: 1, review_item_id: 1, createdAt: -1, _id: -1 });
 activitySchema.index({ agency_id: 1, report_id: 1, createdAt: -1, _id: -1 });
 activitySchema.index({ agency_id: 1, type: 1, createdAt: -1 });
 activitySchema.index({ agency_id: 1, severity: 1, createdAt: -1 });

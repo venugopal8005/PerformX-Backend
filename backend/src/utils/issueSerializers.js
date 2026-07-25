@@ -96,7 +96,11 @@ export const serializeIssueListItem = (issue, parents = {}) => ({
 
 export const serializeIssueDetail = (issue, parents = {}) => ({
   ...serializeIssueListItem(issue, parents),
-  reportIds: (issue.report_ids || []).map(id).filter(Boolean),
+  reportIds: (
+    issue.recent_report_ids?.length
+      ? issue.recent_report_ids
+      : issue.report_ids || []
+  ).slice(-25).map(id).filter(Boolean),
   originReportId: id(issue.origin_report_id),
   latestReportId: id(issue.latest_report_id),
   firstSignalId: id(issue.first_signal_id),
@@ -106,6 +110,21 @@ export const serializeIssueDetail = (issue, parents = {}) => ({
   reopenCount: safeHistoricalNumber(issue.reopen_count),
   reopenedAt: date(issue.reopened_at),
   lifecycleRevision: safeHistoricalNumber(issue.lifecycle_revision),
+  latestInterventionId: id(issue.latest_intervention_id),
+  interventionCount: safeHistoricalNumber(issue.intervention_count) || 0,
+  lastInterventionAt: date(issue.last_intervention_at),
+  interventionRevision: safeHistoricalNumber(issue.intervention_revision) || 0,
+  monitoringStartedAt: date(issue.monitoring_started_at),
+  monitoringReason: text(issue.monitoring_reason, 64),
+  monitoringInterventionId: id(issue.monitoring_intervention_id),
+  worseningStreak: safeHistoricalNumber(issue.worsening_streak) || 0,
+  worseningMetric: text(issue.worsening_metric, 128),
+  worseningStartedAt: date(issue.worsening_started_at),
+  latestEvaluationId: id(issue.latest_evaluation_id),
+  latestEvaluationStatus: text(issue.latest_evaluation_status, 32),
+  latestEvaluationResult: text(issue.latest_evaluation_result, 32),
+  latestEvaluationConfidence: text(issue.latest_evaluation_confidence, 32),
+  latestEvaluationAt: date(issue.latest_evaluation_at),
   scope: {
     version: safeHistoricalNumber(issue?.scope?.version),
     entity: {

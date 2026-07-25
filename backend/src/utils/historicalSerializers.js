@@ -715,6 +715,8 @@ const safeActivityMetadata = (metadata) => {
     "meta_ad_account_id",
     "ad_account_id",
     "previous_client_id",
+    "intervention_id",
+    "issue_id",
   ];
   const textKeys = [
     "signal_type",
@@ -731,6 +733,8 @@ const safeActivityMetadata = (metadata) => {
     "confidence",
     "failure_stage",
     "error_code",
+    "action_type",
+    "recorder_display_name_snapshot",
   ];
   const numberKeys = [
     "signal_count",
@@ -1075,9 +1079,16 @@ export const serializeHistoricalActivity = (
 ) => {
   const value = record(activity);
   const metadata = safeActivityMetadata(value.metadata);
-  const resolvedActor = actorIdentity(actor);
-  const resolvedActorSource =
-    resolvedActor && actorSource === "workspace_member" ? "workspace_member" : "unknown";
+  const actorSnapshotName = text(metadata.recorder_display_name_snapshot, 512);
+  const currentActor = actorIdentity(actor);
+  const resolvedActor = actorSnapshotName
+    ? { id: idString(value.user_id), displayName: actorSnapshotName }
+    : currentActor;
+  const resolvedActorSource = actorSnapshotName
+    ? "snapshot"
+    : resolvedActor && actorSource === "workspace_member"
+      ? "workspace_member"
+      : "unknown";
   const sources = {
     agency: "unknown",
     client: hasHistoricalValue(metadata.client_name) ? "snapshot" : "unknown",

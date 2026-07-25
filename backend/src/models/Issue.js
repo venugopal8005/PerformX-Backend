@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import {
   ACTIVE_ISSUE_STATUSES,
   ISSUE_FINGERPRINT_VERSION,
+  ISSUE_RECENT_REPORT_IDS_LIMIT,
   ISSUE_SEVERITIES,
   ISSUE_STATUSES,
   ISSUE_TEXT_MAX,
@@ -105,15 +106,28 @@ const issueSchema = new mongoose.Schema(
       ref: "Report",
       required: true,
     },
+    // Legacy authoritative-looking cache. New writes use recent_report_ids and
+    // complete history is read from Signals.
     report_ids: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Report" }],
-      required: true,
+      default: undefined,
+      validate: {
+        validator: (values) =>
+          values == null ||
+          (Array.isArray(values) &&
+            new Set(values.map(String)).size === values.length),
+        message: "report_ids must contain unique Report references.",
+      },
+    },
+    recent_report_ids: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Report" }],
+      default: [],
       validate: {
         validator: (values) =>
           Array.isArray(values) &&
-          values.length > 0 &&
+          values.length <= ISSUE_RECENT_REPORT_IDS_LIMIT &&
           new Set(values.map(String)).size === values.length,
-        message: "report_ids must contain unique Report references.",
+        message: `recent_report_ids must contain at most ${ISSUE_RECENT_REPORT_IDS_LIMIT} unique Report references.`,
       },
     },
     status: { type: String, enum: ISSUE_STATUSES, required: true, default: "open" },
@@ -151,6 +165,9 @@ const issueSchema = new mongoose.Schema(
     },
     trend: { type: String, enum: ISSUE_TRENDS, default: "unchanged", required: true },
     absence_streak: { type: Number, min: 0, default: 0, required: true },
+    worsening_streak: { type: Number, min: 0, default: 0, required: true },
+    worsening_metric: { type: String, trim: true, default: null, maxlength: 128 },
+    worsening_started_at: { type: Date, default: null },
     last_observation_key: { type: String, trim: true, default: null, maxlength: 256 },
     last_observation_end: { type: Date, default: null },
     latest_evidence: { type: latestEvidenceSchema, required: true },
@@ -163,6 +180,47 @@ const issueSchema = new mongoose.Schema(
       immutable: true,
     },
     lifecycle_revision: { type: Number, min: 0, default: 0, required: true },
+    latest_intervention_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Intervention",
+      default: null,
+    },
+    intervention_count: { type: Number, min: 0, default: 0, required: true },
+    last_intervention_at: { type: Date, default: null },
+    intervention_revision: { type: Number, min: 0, default: 0, required: true },
+    monitoring_started_at: { type: Date, default: null },
+    monitoring_reason: {
+      type: String,
+      enum: ["actionable_intervention_recorded", "clean_observation", null],
+      default: null,
+    },
+    monitoring_intervention_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Intervention",
+      default: null,
+    },
+    latest_evaluation_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Evaluation",
+      default: null,
+    },
+    latest_evaluation_status: {
+      type: String,
+      enum: ["awaiting_follow_up", "ready", "insufficient_data", "not_evaluable", "invalidated", null],
+      default: null,
+    },
+    latest_evaluation_result: {
+      type: String,
+      enum: ["improved", "worsened", "no_material_change", "mixed", null],
+      default: null,
+    },
+    latest_evaluation_confidence: {
+      type: String,
+      enum: ["high", "medium", "low", "unavailable", null],
+      default: null,
+    },
+    latest_evaluation_at: { type: Date, default: null },
+    evaluation_revision: { type: Number, min: 0, default: 0, required: true },
   },
   {
     timestamps: true,
@@ -206,10 +264,6 @@ issueSchema.index(
 issueSchema.index(
   { agency_id: 1, client_id: 1, last_seen_at: -1, _id: -1 },
   { name: "phase2_issues_client_cursor" }
-);
-issueSchema.index(
-  { agency_id: 1, report_ids: 1, last_seen_at: -1, _id: -1 },
-  { name: "phase2_issues_report_cursor" }
 );
 issueSchema.index(
   { agency_id: 1, status: 1, last_seen_at: -1, _id: -1 },

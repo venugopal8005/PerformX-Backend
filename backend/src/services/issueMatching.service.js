@@ -16,6 +16,7 @@ import {
   ISSUE_ERROR_MESSAGE_MAX,
   ISSUE_FINGERPRINT_VERSION,
   ISSUE_MATCHING_VERSION,
+  ISSUE_RECENT_REPORT_IDS_LIMIT,
   ISSUE_REASON,
   ISSUE_RECURRENCE_MS,
   ISSUE_SEVERITIES,
@@ -40,12 +41,14 @@ import {
   buildIssueObservationKey,
   classifyCleanIssueObservation,
   classifyIssueObservationOrder,
+  classifyPostInterventionBadObservation,
 } from "./issueObservation.service.js";
 import {
   normalizeMetaBindingRevision,
   readPersistedMetaBindingRevision,
   requirePermittedWorkspaceConnection,
 } from "./metaAccountBinding.service.js";
+import { projectIssueReview, projectSourceSafely } from "./reviewProjection.service.js";
 
 const TERMINAL_PROCESSING_STATUSES = new Set([
   "completed",
@@ -109,6 +112,24 @@ const primaryEvidence = (signal) => ({
     : null,
   provenance: signal.context_snapshot ? "snapshot" : "unknown",
 });
+
+const recentReportIdsForIssue = (issue) => {
+  const recent = Array.isArray(issue.recent_report_ids)
+    ? issue.recent_report_ids
+    : [];
+  if (recent.length) return recent;
+  return Array.isArray(issue.report_ids) ? issue.report_ids : [];
+};
+
+const appendRecentReportId = (issue, reportId) => {
+  const values = [
+    ...recentReportIdsForIssue(issue).map(String),
+    String(reportId),
+  ];
+  issue.recent_report_ids = [...new Set(values)].slice(
+    -ISSUE_RECENT_REPORT_IDS_LIMIT
+  );
+};
 
 const cleanEvidence = ({ issue, reportRun, observedAt }) => ({
   kind: "clean_observation",
@@ -481,7 +502,7 @@ const assertIssueOwnership = ({ issue, scopeResult, fingerprint }) => {
 };
 
 const assertPersistedIssueLineage = async ({ issue, Models, session }) => {
-  const reportIds = [...new Set((issue.report_ids || []).map(String))];
+  const reportIds = [...new Set(recentReportIdsForIssue(issue).map(String))];
   const [firstSignal, latestSignal, latestRun, ownedReportCount] = await Promise.all([
     applySession(
       Models.Signal.findOne({
@@ -524,7 +545,6 @@ const assertPersistedIssueLineage = async ({ issue, Models, session }) => {
     ownedReportCount !== reportIds.length ||
     !sameId(firstSignal.report_id, issue.origin_report_id) ||
     !sameId(latestSignal.report_id, issue.latest_report_id) ||
-    !reportIds.includes(String(issue.origin_report_id)) ||
     !reportIds.includes(String(issue.latest_report_id))
   ) {
     throw createIntegrityError(
@@ -548,7 +568,36 @@ const setCurrentOccurrence = ({ issue, signal, reportRun, observation }) => {
   issue.latest_signal_id = signal._id;
   issue.latest_report_run_id = reportRun._id;
   issue.latest_report_id = signal.report_id;
-  issue.report_ids = [...new Set([...(issue.report_ids || []).map(String), String(signal.report_id)])];
+  appendRecentReportId(issue, signal.report_id);
+  issue.title = bounded(signal.title, 512) || issue.title;
+  issue.summary = bounded(signal.description, 2000);
+  issue.latest_evidence = primaryEvidence(signal);
+  issue.absence_streak = 0;
+  issue.worsening_streak = 0;
+  issue.worsening_metric = null;
+  issue.worsening_started_at = null;
+  issue.last_observation_key = observation.key;
+  issue.last_observation_end = observation.window.endDate;
+  issue.lifecycle_revision += 1;
+};
+
+const trackPostInterventionBadObservation = ({ issue, signal, reportRun, observation, policy, now }) => {
+  const previousSeverity = issue.current_severity;
+  const observedAt = signal.detected_at || signal.createdAt || now;
+  const continuing = policy.eligibleForStreak && issue.worsening_metric === policy.metric;
+  issue.worsening_streak = policy.eligibleForStreak ? (continuing ? issue.worsening_streak + 1 : 1) : 0;
+  issue.worsening_metric = policy.eligibleForStreak ? policy.metric : null;
+  issue.worsening_started_at = policy.eligibleForStreak
+    ? continuing ? issue.worsening_started_at || observedAt : observedAt
+    : null;
+  issue.previous_severity = previousSeverity;
+  issue.current_severity = validateSeverity(signal.severity);
+  issue.trend = trendForSeverity(previousSeverity, issue.current_severity);
+  issue.last_seen_at = observedAt;
+  issue.latest_signal_id = signal._id;
+  issue.latest_report_run_id = reportRun._id;
+  issue.latest_report_id = signal.report_id;
+  appendRecentReportId(issue, signal.report_id);
   issue.title = bounded(signal.title, 512) || issue.title;
   issue.summary = bounded(signal.description, 2000);
   issue.latest_evidence = primaryEvidence(signal);
@@ -556,6 +605,19 @@ const setCurrentOccurrence = ({ issue, signal, reportRun, observation }) => {
   issue.last_observation_key = observation.key;
   issue.last_observation_end = observation.window.endDate;
   issue.lifecycle_revision += 1;
+
+  const shouldOpen = policy.criticalImmediate || issue.worsening_streak >= policy.requiredConsecutive;
+  if (shouldOpen) {
+    const wasResolved = issue.status === "resolved";
+    issue.status = "open";
+    issue.active_fingerprint = issue.fingerprint;
+    issue.resolved_at = null;
+    if (wasResolved) {
+      issue.reopen_count += 1;
+      issue.reopened_at = observedAt;
+    }
+  }
+  return shouldOpen;
 };
 
 const createIssueDocument = ({
@@ -577,7 +639,7 @@ const createIssueDocument = ({
   metric_family: scopeResult.scope.classification.metric_family,
   origin_report_id: signal.report_id,
   latest_report_id: signal.report_id,
-  report_ids: [signal.report_id],
+  recent_report_ids: [signal.report_id],
   status: validateSeverity(signal.severity) === "stable" ? "monitoring" : "open",
   opened_at: signal.detected_at || signal.createdAt || new Date(),
   last_seen_at: signal.detected_at || signal.createdAt || new Date(),
@@ -592,6 +654,9 @@ const createIssueDocument = ({
   previous_severity: null,
   trend: "unchanged",
   absence_streak: 0,
+  worsening_streak: 0,
+  worsening_metric: null,
+  worsening_started_at: null,
   last_observation_key: observation.key,
   last_observation_end: observation.window.endDate,
   latest_evidence: primaryEvidence(signal),
@@ -663,6 +728,7 @@ export const processNegativeSignalTransaction = async ({
   Models,
   session,
   now,
+  completeRunProcessing = true,
 }) => {
   if (
     parentState?.operationalAuthority !== true ||
@@ -683,15 +749,17 @@ export const processNegativeSignalTransaction = async ({
       session,
       SignalModel: Models.Signal,
     });
-    await completeProcessing({
-      reportRunId: reportRun._id,
-      token,
-      status: scopeResult.notApplicable ? "not_applicable" : "ineligible",
-      classification: scopeResult.notApplicable ? "not_applicable" : "ineligible",
-      now,
-      session,
-      ReportRunModel: Models.ReportRun,
-    });
+    if (completeRunProcessing) {
+      await completeProcessing({
+        reportRunId: reportRun._id,
+        token,
+        status: scopeResult.notApplicable ? "not_applicable" : "ineligible",
+        classification: scopeResult.notApplicable ? "not_applicable" : "ineligible",
+        now,
+        session,
+        ReportRunModel: Models.ReportRun,
+      });
+    }
     return { classification: scopeResult.notApplicable ? "not_applicable" : "ineligible", issue: null };
   }
 
@@ -702,7 +770,9 @@ export const processNegativeSignalTransaction = async ({
   });
   if (!observation) {
     await markSignalIneligible({ signal, reason: "comparison_window_invalid", session, SignalModel: Models.Signal });
-    await completeProcessing({ reportRunId: reportRun._id, token, status: "ineligible", classification: "ineligible", now, session, ReportRunModel: Models.ReportRun });
+    if (completeRunProcessing) {
+      await completeProcessing({ reportRunId: reportRun._id, token, status: "ineligible", classification: "ineligible", now, session, ReportRunModel: Models.ReportRun });
+    }
     return { classification: "ineligible", issue: null };
   }
 
@@ -731,7 +801,9 @@ export const processNegativeSignalTransaction = async ({
         signal.issue_id &&
         sameId(signal.issue_id, prior._id)
       ) {
-        await completeProcessing({ reportRunId: reportRun._id, token, status: "completed", classification: "matched", issueId: prior._id, now, session, ReportRunModel: Models.ReportRun });
+        if (completeRunProcessing) {
+          await completeProcessing({ reportRunId: reportRun._id, token, status: "completed", classification: "matched", issueId: prior._id, now, session, ReportRunModel: Models.ReportRun });
+        }
         return { classification: "matched", issue: prior };
       }
       await markSignalIneligible({
@@ -740,7 +812,9 @@ export const processNegativeSignalTransaction = async ({
         session,
         SignalModel: Models.Signal,
       });
-      await completeProcessing({ reportRunId: reportRun._id, token, status: "ineligible", classification: "ineligible", now, session, ReportRunModel: Models.ReportRun });
+      if (completeRunProcessing) {
+        await completeProcessing({ reportRunId: reportRun._id, token, status: "ineligible", classification: "ineligible", now, session, ReportRunModel: Models.ReportRun });
+      }
       return { classification: "ineligible", issue: null };
     }
   }
@@ -748,7 +822,17 @@ export const processNegativeSignalTransaction = async ({
   let classification;
   if (issue) {
     issue.occurrence_count += 1;
-    setCurrentOccurrence({ issue, signal, reportRun, observation });
+    if (issue.status === "monitoring" && issue.latest_intervention_id) {
+      const policy = classifyPostInterventionBadObservation({
+        issue,
+        signal,
+        reportRun,
+        observedAt: observation.window.endDate,
+      });
+      trackPostInterventionBadObservation({ issue, signal, reportRun, observation, policy, now });
+    } else {
+      setCurrentOccurrence({ issue, signal, reportRun, observation });
+    }
     await issue.save({ session });
     classification = "matched";
   } else if (latestResolved) {
@@ -757,11 +841,22 @@ export const processNegativeSignalTransaction = async ({
     if (recurrenceAge >= 0 && recurrenceAge <= ISSUE_RECURRENCE_MS) {
       issue = latestResolved;
       issue.occurrence_count += 1;
-      issue.reopen_count += 1;
-      issue.reopened_at = signal.detected_at || signal.createdAt || now;
-      setCurrentOccurrence({ issue, signal, reportRun, observation });
+      if (issue.latest_intervention_id) {
+        const policy = classifyPostInterventionBadObservation({
+          issue,
+          signal,
+          reportRun,
+          observedAt: observation.window.endDate,
+        });
+        const reopened = trackPostInterventionBadObservation({ issue, signal, reportRun, observation, policy, now });
+        classification = reopened ? "reopened" : "matched";
+      } else {
+        issue.reopen_count += 1;
+        issue.reopened_at = signal.detected_at || signal.createdAt || now;
+        setCurrentOccurrence({ issue, signal, reportRun, observation });
+        classification = "reopened";
+      }
       await issue.save({ session });
-      classification = "reopened";
     } else {
       [issue] = await Models.Issue.create(
         [createIssueDocument({ scopeResult, fingerprintResult, signal, reportRun, observation, predecessorIssueId: latestResolved._id })],
@@ -787,7 +882,9 @@ export const processNegativeSignalTransaction = async ({
     session,
     SignalModel: Models.Signal,
   });
-  await completeProcessing({ reportRunId: reportRun._id, token, status: "completed", classification, issueId: issue._id, now, session, ReportRunModel: Models.ReportRun });
+  if (completeRunProcessing) {
+    await completeProcessing({ reportRunId: reportRun._id, token, status: "completed", classification, issueId: issue._id, now, session, ReportRunModel: Models.ReportRun });
+  }
   return { classification, issue };
 };
 
@@ -818,7 +915,10 @@ const processCleanObservationTransaction = async ({
       "scope.entity.campaign_id": base.campaignId,
       "scope.comparison.cadence": base.cadence,
       "scope.comparison.timezone": base.timezone,
-      status: { $in: ["open", "monitoring"] },
+      $or: [
+        { status: { $in: ["open", "monitoring"] } },
+        { status: "resolved", worsening_streak: { $gt: 0 } },
+      ],
     }),
     session
   );
@@ -839,8 +939,17 @@ const processCleanObservationTransaction = async ({
     issue.last_observation_end = observation.window.endDate;
     issue.latest_report_run_id = reportRun._id;
     issue.lifecycle_revision += 1;
+    issue.worsening_streak = 0;
+    issue.worsening_metric = null;
+    issue.worsening_started_at = null;
     if (!quality.clean) {
       issue.absence_streak = 0;
+      await issue.save({ session });
+      changed.push(issue);
+      continue;
+    }
+
+    if (issue.status === "resolved") {
       await issue.save({ session });
       changed.push(issue);
       continue;
@@ -856,7 +965,15 @@ const processCleanObservationTransaction = async ({
       reportRun,
       observedAt: observation.window.endDate,
     });
-    if (issue.absence_streak >= 2) {
+    const evaluationSupportsResolution =
+      !issue.monitoring_intervention_id ||
+      (issue.latest_evaluation_status === "ready" &&
+        issue.latest_evaluation_result === "improved" &&
+        ["high", "medium"].includes(issue.latest_evaluation_confidence) &&
+        issue.latest_evaluation_at &&
+        (issue.monitoring_started_at || issue.last_intervention_at) &&
+        new Date(issue.latest_evaluation_at) >= new Date(issue.monitoring_started_at || issue.last_intervention_at));
+    if (issue.absence_streak >= 2 && evaluationSupportsResolution) {
       issue.status = "resolved";
       issue.resolved_at = observation.window.endDate;
       issue.active_fingerprint = null;
@@ -864,6 +981,8 @@ const processCleanObservationTransaction = async ({
       issue.status = "monitoring";
       issue.resolved_at = null;
       issue.active_fingerprint = issue.fingerprint;
+      issue.monitoring_started_at ||= observation.window.endDate;
+      issue.monitoring_reason ||= "clean_observation";
     }
     await issue.save({ session });
     changed.push(issue);
@@ -904,18 +1023,15 @@ export const runIssueMatchingTransaction = async ({
         Models.Signal.find({ report_run_id: reportRunId }).sort({ detected_at: 1, _id: 1 }),
         session
       );
-      if (signals.length > 1) {
-        throw createIntegrityError(ISSUE_ERROR_CODE.SIGNAL_CARDINALITY, "A ReportRun contains more than one Signal.", ISSUE_REASON.SIGNAL_CARDINALITY);
-      }
-      if (signals[0]) {
+      for (const signal of signals) {
         // Validate persisted Signal ownership before operational-state handling so
         // a contradictory lineage can never be downgraded to ordinary ineligibility.
-        buildCanonicalSignalIssueScope({ signal: signals[0], reportRun });
+        buildCanonicalSignalIssueScope({ signal, reportRun });
       }
       if (parentState.archived) {
-        if (signals[0]) {
+        for (const signal of signals) {
           await markSignalIneligible({
-            signal: signals[0],
+            signal,
             reason: ISSUE_REASON.PARENT_ARCHIVED,
             session,
             SignalModel: Models.Signal,
@@ -924,16 +1040,18 @@ export const runIssueMatchingTransaction = async ({
         await completeProcessing({ reportRunId, token, status: "not_applicable", classification: "not_applicable", now, session, ReportRunModel: Models.ReportRun });
         return { classification: "not_applicable", issue: null };
       }
-      if (signals.length === 1) {
+      if (signals.length) {
         if (!parentState.reportOperational || !parentState.operationalAuthority) {
-          await markSignalIneligible({
-            signal: signals[0],
-            reason: !parentState.reportOperational
-              ? ISSUE_REASON.PARENT_NOT_OPERATIONAL
-              : parentState.operationalAuthorityReason,
-            session,
-            SignalModel: Models.Signal,
-          });
+          for (const signal of signals) {
+            await markSignalIneligible({
+              signal,
+              reason: !parentState.reportOperational
+                ? ISSUE_REASON.PARENT_NOT_OPERATIONAL
+                : parentState.operationalAuthorityReason,
+              session,
+              SignalModel: Models.Signal,
+            });
+          }
           await completeProcessing({
             reportRunId,
             token,
@@ -945,15 +1063,54 @@ export const runIssueMatchingTransaction = async ({
           });
           return { classification: "ineligible", issue: null };
         }
-        return processNegativeSignalTransaction({
-          reportRun,
-          signal: signals[0],
+
+        const outcomes = [];
+        for (const signal of signals) {
+          outcomes.push(
+            await processNegativeSignalTransaction({
+              reportRun,
+              signal,
+              token,
+              parentState,
+              Models,
+              session,
+              now,
+              completeRunProcessing: false,
+            })
+          );
+        }
+        const issues = [
+          ...new Map(
+            outcomes
+              .filter((outcome) => outcome.issue?._id)
+              .map((outcome) => [String(outcome.issue._id), outcome.issue])
+          ).values(),
+        ];
+        const successful = outcomes.filter((outcome) => outcome.issue);
+        const classification =
+          successful.length === 0
+            ? outcomes.some((outcome) => outcome.classification === "ineligible")
+              ? "ineligible"
+              : "not_applicable"
+            : successful.length === 1
+              ? successful[0].classification
+              : "matched";
+        await completeProcessing({
+          reportRunId,
           token,
-          parentState,
-          Models,
-          session,
+          status: successful.length ? "completed" : classification,
+          classification,
+          issueId: issues.length === 1 ? issues[0]._id : null,
           now,
+          session,
+          ReportRunModel: Models.ReportRun,
         });
+        return {
+          classification,
+          issue: issues.length === 1 ? issues[0] : null,
+          issues,
+          outcomes,
+        };
       }
       return processCleanObservationTransaction({ reportRun, token, Models, session, now, parentState });
     },
@@ -964,6 +1121,7 @@ export const processReportRunIssues = async ({
   now = new Date(),
   Models = defaultModels,
   transactionRunner = runRequiredTransaction,
+  reviewProcessor = projectIssueReview,
 } = {}) => {
   assertPhase2IssueIntegrityReady();
 
@@ -989,7 +1147,12 @@ export const processReportRunIssues = async ({
   let lastError;
   for (let attempt = 1; attempt <= ISSUE_TRANSACTION_RETRY_COUNT; attempt += 1) {
     try {
-      return await runIssueMatchingTransaction({ reportRunId, token: claim.token, Models, now, transactionRunner });
+      const outcome = await runIssueMatchingTransaction({ reportRunId, token: claim.token, Models, now, transactionRunner });
+      const changed = outcome.issue ? [outcome.issue] : outcome.issues || [];
+      for (const issue of changed.slice(0, 50)) {
+        await projectSourceSafely(reviewProcessor, { agencyId: issue.agency_id, issueId: issue._id, classification: outcome.classification, now }, { operation: "issue_post_commit" });
+      }
+      return outcome;
     } catch (error) {
       lastError = error;
       if (!isRetryableTransactionError(error) || attempt === ISSUE_TRANSACTION_RETRY_COUNT) break;
