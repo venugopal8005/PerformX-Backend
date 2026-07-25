@@ -12,6 +12,7 @@ import {
 import {
   ISSUE_CLAIM_LEASE_MS,
   ISSUE_MATCHING_VERSION,
+  ISSUE_RECENT_REPORT_IDS_LIMIT,
   ISSUE_REASON,
   issueProcessingKey,
 } from "../domain/phase2Issue.domain.js";
@@ -310,7 +311,14 @@ export const verifyPhase2IssueMigrationApply = async ({
       !sameId(issue.latest_signal_id, latestSignal?._id) ||
       !sameDate(issue.opened_at, firstSignal?.detected_at || firstSignal?.createdAt) ||
       !sameDate(issue.last_seen_at, latestSignal?.detected_at || latestSignal?.createdAt) ||
-      !exactIdSet(issue.report_ids, reportIds)
+      !exactIdSet(
+        issue.recent_report_ids?.length
+          ? issue.recent_report_ids
+          : issue.report_ids,
+        [...new Set(reportIds.map(String))].slice(
+          -ISSUE_RECENT_REPORT_IDS_LIMIT
+        )
+      )
     ) {
       throw migrationVerificationError(
         "Phase 2 migration persisted inconsistent Issue chronology.",

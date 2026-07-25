@@ -425,10 +425,6 @@ const buildGeneratedRunFields = ({
   evaluationEvidence,
   now,
 }) => ({
-  meta_ad_account_id: metaAdAccount._id,
-  meta_account_external_id_snapshot: metaAdAccount.ad_account_id,
-  meta_account_name_snapshot: metaAdAccount.name,
-  monitored_campaigns: report.monitored_campaigns || [],
   evaluation_evidence: evaluationEvidence,
   status: mapRunStatus(narrative),
   summary: buildReportSummary(narrative),
@@ -457,7 +453,6 @@ const buildGeneratedRunFields = ({
   artifacts_ready_at: now,
   failure: null,
   next_retry_at: null,
-  ran_at: now,
 });
 
 const markRunFailed = async ({ report, reportRun, stage, error, userId }) => {

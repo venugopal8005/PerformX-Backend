@@ -19,6 +19,8 @@
     "inspect:phase5-review-indexes": "node src/scripts/applyPhase5ReviewIndexes.js --inspect",
     "apply:phase5-review-indexes": "node src/scripts/applyPhase5ReviewIndexes.js --apply",
     "migrate:phase2-issues": "node src/scripts/migratePhase2Issues.js --dry-run",
+    "inspect:phase3-historical-integrity": "node src/scripts/migratePhase3HistoricalIntegrity.js --dry-run",
+    "apply:phase3-historical-integrity": "node src/scripts/migratePhase3HistoricalIntegrity.js --apply",
     "verify:archive-topology": "node src/scripts/verifyArchiveTopology.js",
     "backfill:historical-snapshots": "node src/scripts/backfillHistoricalSnapshots.js",
     "audit:report-lineage": "node src/scripts/auditReportLineage.js",

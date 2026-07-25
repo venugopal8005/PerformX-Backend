@@ -209,7 +209,9 @@ class FakeIdempotentModel {
   }
 
   static async findOneAndUpdate(query, update) {
-    const key = String(query.report_run_id || query.idempotency_key);
+    const key = query.observation_key
+      ? `${query.report_run_id}:${query.observation_key}`
+      : String(query.report_run_id || query.idempotency_key);
     if (!this.records.has(key)) {
       this.sequence += 1;
       this.records.set(key, { _id: `record-${this.sequence}`, ...update.$setOnInsert });
@@ -218,7 +220,10 @@ class FakeIdempotentModel {
   }
 
   static async findOne(query) {
-    return this.records.get(String(query.report_run_id || query.idempotency_key)) || null;
+    const key = query.observation_key
+      ? `${query.report_run_id}:${query.observation_key}`
+      : String(query.report_run_id || query.idempotency_key);
+    return this.records.get(key) || null;
   }
 }
 
@@ -723,13 +728,66 @@ test("historical documents validate without new idempotency fields", () => {
   );
 });
 
-test("new idempotency indexes are unique and sparse", () => {
+test("new idempotency indexes preserve execution and per-observation uniqueness", () => {
   const indexes = (model) => model.schema.indexes().map(([fields, options]) => ({ fields, options }));
   const reportRunIndex = indexes(ReportRun).find((item) => item.fields.execution_key === 1);
-  const signalIndex = indexes(Signal).find((item) => item.fields.report_run_id === 1);
+  const signalIndex = indexes(Signal).find(
+    (item) =>
+      item.fields.agency_id === 1 &&
+      item.fields.report_run_id === 1 &&
+      item.fields.observation_key === 1
+  );
   const activityIndex = indexes(Activity).find((item) => item.fields.idempotency_key === 1);
-  [reportRunIndex, signalIndex, activityIndex].forEach((index) => {
+  [reportRunIndex, activityIndex].forEach((index) => {
     assert.equal(index.options.unique, true);
     assert.equal(index.options.sparse, true);
   });
+  assert.equal(signalIndex.options.unique, true);
+  assert.deepEqual(signalIndex.options.partialFilterExpression, {
+    report_run_id: { $type: "objectId" },
+    observation_key: { $type: "string" },
+  });
+});
+
+test("one ReportRun persists distinct metric Signals without retry duplication", async () => {
+  const input = {
+    report: { _id: "report-1", agency_id: "agency-1", client_id: "client-1" },
+    narrative: {
+      status: "ok",
+      severity: { level: "high" },
+      executiveSummary: "Several independent metrics need attention.",
+      likelyCause: { id: "creative_fatigue", archetype: "Creative fatigue" },
+      campaign: { id: "campaign-1" },
+      rankedAnomalies: [
+        { metric: "ctr", label: "CTR", delta: -30, direction: "bad", usable: true },
+        { metric: "cpa", label: "CPA", delta: 45, direction: "bad", usable: true },
+        { metric: "roas", label: "ROAS", delta: -25, direction: "bad", usable: true },
+      ],
+    },
+    comparison: {
+      period: {
+        current: { start: "2026-07-14", end: "2026-07-14" },
+        previous: { start: "2026-07-13", end: "2026-07-13" },
+      },
+    },
+    reportRunId: "run-multiple",
+    reportRun: {
+      _id: "run-multiple",
+      started_at: new Date("2026-07-14T00:00:00.000Z"),
+      context_snapshot: {
+        source: "execution",
+        captured_at: new Date("2026-07-14T00:00:00.000Z"),
+      },
+      monitored_campaigns: [{ campaign_id: "campaign-1" }],
+    },
+    SignalModel: FakeIdempotentModel,
+  };
+  const [first, second] = await Promise.all([
+    saveSignalsFromNarrative(input),
+    saveSignalsFromNarrative(input),
+  ]);
+  assert.equal(first.length, 3);
+  assert.equal(second.length, 3);
+  assert.equal(FakeIdempotentModel.records.size, 3);
+  assert.equal(new Set(first.map((signal) => signal.observation_key)).size, 3);
 });

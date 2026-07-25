@@ -522,7 +522,7 @@ test("schema declarations exactly match every canonical specification", () => {
   }
 });
 
-test("execution-integrity index definitions remain unchanged", () => {
+test("execution-integrity index definitions preserve run and activity identity while Signals use observation identity", () => {
   assert.deepEqual(
     REQUIRED_EXECUTION_INTEGRITY_INDEXES.map(({ modelName, field, key, name }) => ({
       modelName,
@@ -532,7 +532,7 @@ test("execution-integrity index definitions remain unchanged", () => {
     })),
     [
       { modelName: "ReportRun", field: "execution_key", key: { execution_key: 1 }, name: "execution_integrity_execution_key_unique" },
-      { modelName: "Signal", field: "report_run_id", key: { report_run_id: 1 }, name: "execution_integrity_report_run_signal_unique" },
+      { modelName: "Signal", field: "observation_key", key: { agency_id: 1, report_run_id: 1, observation_key: 1 }, name: "execution_integrity_report_run_signal_identity_unique" },
       { modelName: "Activity", field: "idempotency_key", key: { idempotency_key: 1 }, name: "execution_integrity_activity_key_unique" },
     ]
   );

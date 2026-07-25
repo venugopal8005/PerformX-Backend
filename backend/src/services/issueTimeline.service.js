@@ -46,7 +46,7 @@ const limitFor = (input) => {
 const below = (field, position) => !position?.timestamp ? {} : { $or: [{ [field]: { $lt: new Date(position.timestamp) } }, { [field]: new Date(position.timestamp), _id: { $lt: position.objectId } }] };
 const baseScope = (stream, issue, agencyId) => {
   if (stream.name === "client_archive") return { agency_id: agencyId, client_id: issue.client_id };
-  if (stream.name === "report_archive") return { agency_id: agencyId, report_id: { $in: issue.report_ids || [] } };
+  if (stream.name === "report_archive") return { agency_id: agencyId, report_id: { $in: issue._historyReportIds || [] } };
   return { agency_id: agencyId, issue_id: issue._id };
 };
 const describe = (stream, document) => {
@@ -75,8 +75,18 @@ const compare = (left, right) => {
 
 export const getIssueTimeline = async ({ agencyId, issueId, cursor = null, limit = null, Models = defaultModels, now = new Date() } = {}) => {
   if (!mongoose.isObjectIdOrHexString(issueId)) throw createReviewError(REVIEW_ERROR.NOT_FOUND, "Issue not found.", 404);
-  const issue = await Models.Issue.findOne({ _id: issueId, agency_id: agencyId }).select("_id client_id report_ids").lean();
+  const issue = await Models.Issue.findOne({ _id: issueId, agency_id: agencyId }).select("_id client_id report_ids recent_report_ids").lean();
   if (!issue) throw createReviewError(REVIEW_ERROR.NOT_FOUND, "Issue not found.", 404);
+  const linkedReportIds = await Models.Signal.distinct("report_id", {
+    agency_id: agencyId,
+    issue_id: issue._id,
+    report_id: { $type: "objectId" },
+  });
+  issue._historyReportIds = linkedReportIds.length
+    ? linkedReportIds
+    : issue.recent_report_ids?.length
+      ? issue.recent_report_ids
+      : issue.report_ids || [];
   const pageLimit = limitFor(limit);
   const parsed = decode(cursor, { agencyId, issueId });
   const snapshotAt = parsed ? new Date(parsed.snapshotAt) : now;

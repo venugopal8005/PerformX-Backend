@@ -38,6 +38,7 @@ export const ISSUE_SUPPORTED_CADENCES = Object.freeze(["daily", "weekly", "month
 export const ISSUE_RECURRENCE_MS = 30 * 24 * 60 * 60 * 1000;
 export const ISSUE_CLAIM_LEASE_MS = 5 * 60 * 1000;
 export const ISSUE_TRANSACTION_RETRY_COUNT = 3;
+export const ISSUE_RECENT_REPORT_IDS_LIMIT = 25;
 
 export const ISSUE_ARCHETYPE_METRIC_FAMILY = Object.freeze({
   creative_fatigue: "creative_engagement",

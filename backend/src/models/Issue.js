@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import {
   ACTIVE_ISSUE_STATUSES,
   ISSUE_FINGERPRINT_VERSION,
+  ISSUE_RECENT_REPORT_IDS_LIMIT,
   ISSUE_SEVERITIES,
   ISSUE_STATUSES,
   ISSUE_TEXT_MAX,
@@ -105,15 +106,28 @@ const issueSchema = new mongoose.Schema(
       ref: "Report",
       required: true,
     },
+    // Legacy authoritative-looking cache. New writes use recent_report_ids and
+    // complete history is read from Signals.
     report_ids: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Report" }],
-      required: true,
+      default: undefined,
+      validate: {
+        validator: (values) =>
+          values == null ||
+          (Array.isArray(values) &&
+            new Set(values.map(String)).size === values.length),
+        message: "report_ids must contain unique Report references.",
+      },
+    },
+    recent_report_ids: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Report" }],
+      default: [],
       validate: {
         validator: (values) =>
           Array.isArray(values) &&
-          values.length > 0 &&
+          values.length <= ISSUE_RECENT_REPORT_IDS_LIMIT &&
           new Set(values.map(String)).size === values.length,
-        message: "report_ids must contain unique Report references.",
+        message: `recent_report_ids must contain at most ${ISSUE_RECENT_REPORT_IDS_LIMIT} unique Report references.`,
       },
     },
     status: { type: String, enum: ISSUE_STATUSES, required: true, default: "open" },
@@ -250,10 +264,6 @@ issueSchema.index(
 issueSchema.index(
   { agency_id: 1, client_id: 1, last_seen_at: -1, _id: -1 },
   { name: "phase2_issues_client_cursor" }
-);
-issueSchema.index(
-  { agency_id: 1, report_ids: 1, last_seen_at: -1, _id: -1 },
-  { name: "phase2_issues_report_cursor" }
 );
 issueSchema.index(
   { agency_id: 1, status: 1, last_seen_at: -1, _id: -1 },

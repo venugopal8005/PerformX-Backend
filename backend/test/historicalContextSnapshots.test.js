@@ -317,9 +317,12 @@ test("Signal context uses ReportRun Meta and campaign evidence and remains inser
     comparison: { period: {} },
   };
   const [first] = await saveSignalsFromNarrative(input);
-  await ReportRun.updateOne(
-    { _id: persistedRun._id },
-    { $set: { meta_account_name_snapshot: "Changed live evidence" } }
+  await assert.rejects(
+    ReportRun.updateOne(
+      { _id: persistedRun._id },
+      { $set: { meta_account_name_snapshot: "Changed live evidence" } }
+    ),
+    (error) => error.code === "REPORT_RUN_IMMUTABLE_EVIDENCE"
   );
   const [second] = await saveSignalsFromNarrative({
     ...input,

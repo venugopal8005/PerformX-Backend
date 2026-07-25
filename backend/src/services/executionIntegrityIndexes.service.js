@@ -1,4 +1,5 @@
 import { Activity, ReportRun, Signal } from "../models/index.js";
+import { isDeepStrictEqual } from "node:util";
 
 export const REQUIRED_EXECUTION_INTEGRITY_INDEXES = Object.freeze([
   Object.freeze({
@@ -9,9 +10,13 @@ export const REQUIRED_EXECUTION_INTEGRITY_INDEXES = Object.freeze([
   }),
   Object.freeze({
     modelName: "Signal",
-    field: "report_run_id",
-    key: Object.freeze({ report_run_id: 1 }),
-    name: "execution_integrity_report_run_signal_unique",
+    field: "observation_key",
+    key: Object.freeze({ agency_id: 1, report_run_id: 1, observation_key: 1 }),
+    name: "execution_integrity_report_run_signal_identity_unique",
+    partialFilterExpression: Object.freeze({
+      report_run_id: Object.freeze({ $type: "objectId" }),
+      observation_key: Object.freeze({ $type: "string" }),
+    }),
   }),
   Object.freeze({
     modelName: "Activity",
@@ -52,13 +57,19 @@ const hasExactKey = (index, required) => {
   );
 };
 
-const hasEquivalentPartialBehavior = (index, field) => {
+const hasEquivalentPartialBehavior = (index, required) => {
+  if (required.partialFilterExpression) {
+    return isDeepStrictEqual(
+      index?.partialFilterExpression || null,
+      required.partialFilterExpression
+    );
+  }
   if (index?.sparse === true) return true;
 
   const filter = index?.partialFilterExpression;
   if (!filter || Object.keys(filter).length !== 1) return false;
 
-  const condition = filter[field];
+  const condition = filter[required.field];
   if (
     !condition ||
     typeof condition !== "object" ||
@@ -78,7 +89,7 @@ const hasEquivalentPartialBehavior = (index, field) => {
 export const isRequiredExecutionIntegrityIndex = (index, required) =>
   hasExactKey(index, required) &&
   index?.unique === true &&
-  hasEquivalentPartialBehavior(index, required.field);
+  hasEquivalentPartialBehavior(index, required);
 
 const readCollectionIndexes = async (collection) => {
   try {
@@ -89,13 +100,18 @@ const readCollectionIndexes = async (collection) => {
   }
 };
 
-const findDuplicateValues = async (collection, field) => {
+const findDuplicateValues = async (collection, required) => {
+  const fields = Object.keys(required.key);
+  const groupId = Object.fromEntries(fields.map((field) => [field, `$${field}`]));
+  const match = required.partialFilterExpression || {
+    [required.field]: { $exists: true, $ne: null },
+  };
   const cursor = collection.aggregate(
     [
-      { $match: { [field]: { $exists: true, $ne: null } } },
+      { $match: match },
       {
         $group: {
-          _id: `$${field}`,
+          _id: groupId,
           count: { $sum: 1 },
           sample_ids: { $push: "$_id" },
         },
@@ -138,6 +154,21 @@ export const verifyExecutionIntegrityIndexes = async ({
     }
 
     const existingIndexes = await readCollectionIndexes(collection);
+    const legacySingleSignalIndex =
+      required.modelName === "Signal" &&
+      existingIndexes.find(
+        (index) =>
+          index?.unique === true &&
+          isDeepStrictEqual(Object.entries(index.key || {}), [["report_run_id", 1]])
+      );
+    if (legacySingleSignalIndex) {
+      throw integrityError(
+        "The legacy one-Signal-per-ReportRun index must be replaced by the guarded Phase 3 migration.",
+        "EXECUTION_INTEGRITY_SIGNAL_INDEX_MIGRATION_REQUIRED",
+        { indexName: legacySingleSignalIndex.name }
+      );
+    }
+
     if (
       existingIndexes.some((index) =>
         isRequiredExecutionIntegrityIndex(index, required)
@@ -156,7 +187,7 @@ export const verifyExecutionIntegrityIndexes = async ({
       continue;
     }
 
-    const duplicates = await findDuplicateValues(collection, required.field);
+    const duplicates = await findDuplicateValues(collection, required);
     if (duplicates.length) {
       throw integrityError(
         `Cannot create the required ${required.modelName}.${required.field} unique index because duplicate values exist.`,
@@ -175,7 +206,9 @@ export const verifyExecutionIntegrityIndexes = async ({
       await collection.createIndex(required.key, {
         name: required.name,
         unique: true,
-        sparse: true,
+        ...(required.partialFilterExpression
+          ? { partialFilterExpression: required.partialFilterExpression }
+          : { sparse: true }),
       });
     } catch (error) {
       throw integrityError(

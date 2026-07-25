@@ -16,6 +16,7 @@ import {
   ISSUE_ERROR_MESSAGE_MAX,
   ISSUE_FINGERPRINT_VERSION,
   ISSUE_MATCHING_VERSION,
+  ISSUE_RECENT_REPORT_IDS_LIMIT,
   ISSUE_REASON,
   ISSUE_RECURRENCE_MS,
   ISSUE_SEVERITIES,
@@ -111,6 +112,24 @@ const primaryEvidence = (signal) => ({
     : null,
   provenance: signal.context_snapshot ? "snapshot" : "unknown",
 });
+
+const recentReportIdsForIssue = (issue) => {
+  const recent = Array.isArray(issue.recent_report_ids)
+    ? issue.recent_report_ids
+    : [];
+  if (recent.length) return recent;
+  return Array.isArray(issue.report_ids) ? issue.report_ids : [];
+};
+
+const appendRecentReportId = (issue, reportId) => {
+  const values = [
+    ...recentReportIdsForIssue(issue).map(String),
+    String(reportId),
+  ];
+  issue.recent_report_ids = [...new Set(values)].slice(
+    -ISSUE_RECENT_REPORT_IDS_LIMIT
+  );
+};
 
 const cleanEvidence = ({ issue, reportRun, observedAt }) => ({
   kind: "clean_observation",
@@ -483,7 +502,7 @@ const assertIssueOwnership = ({ issue, scopeResult, fingerprint }) => {
 };
 
 const assertPersistedIssueLineage = async ({ issue, Models, session }) => {
-  const reportIds = [...new Set((issue.report_ids || []).map(String))];
+  const reportIds = [...new Set(recentReportIdsForIssue(issue).map(String))];
   const [firstSignal, latestSignal, latestRun, ownedReportCount] = await Promise.all([
     applySession(
       Models.Signal.findOne({
@@ -526,7 +545,6 @@ const assertPersistedIssueLineage = async ({ issue, Models, session }) => {
     ownedReportCount !== reportIds.length ||
     !sameId(firstSignal.report_id, issue.origin_report_id) ||
     !sameId(latestSignal.report_id, issue.latest_report_id) ||
-    !reportIds.includes(String(issue.origin_report_id)) ||
     !reportIds.includes(String(issue.latest_report_id))
   ) {
     throw createIntegrityError(
@@ -550,7 +568,7 @@ const setCurrentOccurrence = ({ issue, signal, reportRun, observation }) => {
   issue.latest_signal_id = signal._id;
   issue.latest_report_run_id = reportRun._id;
   issue.latest_report_id = signal.report_id;
-  issue.report_ids = [...new Set([...(issue.report_ids || []).map(String), String(signal.report_id)])];
+  appendRecentReportId(issue, signal.report_id);
   issue.title = bounded(signal.title, 512) || issue.title;
   issue.summary = bounded(signal.description, 2000);
   issue.latest_evidence = primaryEvidence(signal);
@@ -579,7 +597,7 @@ const trackPostInterventionBadObservation = ({ issue, signal, reportRun, observa
   issue.latest_signal_id = signal._id;
   issue.latest_report_run_id = reportRun._id;
   issue.latest_report_id = signal.report_id;
-  issue.report_ids = [...new Set([...(issue.report_ids || []).map(String), String(signal.report_id)])];
+  appendRecentReportId(issue, signal.report_id);
   issue.title = bounded(signal.title, 512) || issue.title;
   issue.summary = bounded(signal.description, 2000);
   issue.latest_evidence = primaryEvidence(signal);
@@ -621,7 +639,7 @@ const createIssueDocument = ({
   metric_family: scopeResult.scope.classification.metric_family,
   origin_report_id: signal.report_id,
   latest_report_id: signal.report_id,
-  report_ids: [signal.report_id],
+  recent_report_ids: [signal.report_id],
   status: validateSeverity(signal.severity) === "stable" ? "monitoring" : "open",
   opened_at: signal.detected_at || signal.createdAt || new Date(),
   last_seen_at: signal.detected_at || signal.createdAt || new Date(),
@@ -710,6 +728,7 @@ export const processNegativeSignalTransaction = async ({
   Models,
   session,
   now,
+  completeRunProcessing = true,
 }) => {
   if (
     parentState?.operationalAuthority !== true ||
@@ -730,15 +749,17 @@ export const processNegativeSignalTransaction = async ({
       session,
       SignalModel: Models.Signal,
     });
-    await completeProcessing({
-      reportRunId: reportRun._id,
-      token,
-      status: scopeResult.notApplicable ? "not_applicable" : "ineligible",
-      classification: scopeResult.notApplicable ? "not_applicable" : "ineligible",
-      now,
-      session,
-      ReportRunModel: Models.ReportRun,
-    });
+    if (completeRunProcessing) {
+      await completeProcessing({
+        reportRunId: reportRun._id,
+        token,
+        status: scopeResult.notApplicable ? "not_applicable" : "ineligible",
+        classification: scopeResult.notApplicable ? "not_applicable" : "ineligible",
+        now,
+        session,
+        ReportRunModel: Models.ReportRun,
+      });
+    }
     return { classification: scopeResult.notApplicable ? "not_applicable" : "ineligible", issue: null };
   }
 
@@ -749,7 +770,9 @@ export const processNegativeSignalTransaction = async ({
   });
   if (!observation) {
     await markSignalIneligible({ signal, reason: "comparison_window_invalid", session, SignalModel: Models.Signal });
-    await completeProcessing({ reportRunId: reportRun._id, token, status: "ineligible", classification: "ineligible", now, session, ReportRunModel: Models.ReportRun });
+    if (completeRunProcessing) {
+      await completeProcessing({ reportRunId: reportRun._id, token, status: "ineligible", classification: "ineligible", now, session, ReportRunModel: Models.ReportRun });
+    }
     return { classification: "ineligible", issue: null };
   }
 
@@ -778,7 +801,9 @@ export const processNegativeSignalTransaction = async ({
         signal.issue_id &&
         sameId(signal.issue_id, prior._id)
       ) {
-        await completeProcessing({ reportRunId: reportRun._id, token, status: "completed", classification: "matched", issueId: prior._id, now, session, ReportRunModel: Models.ReportRun });
+        if (completeRunProcessing) {
+          await completeProcessing({ reportRunId: reportRun._id, token, status: "completed", classification: "matched", issueId: prior._id, now, session, ReportRunModel: Models.ReportRun });
+        }
         return { classification: "matched", issue: prior };
       }
       await markSignalIneligible({
@@ -787,7 +812,9 @@ export const processNegativeSignalTransaction = async ({
         session,
         SignalModel: Models.Signal,
       });
-      await completeProcessing({ reportRunId: reportRun._id, token, status: "ineligible", classification: "ineligible", now, session, ReportRunModel: Models.ReportRun });
+      if (completeRunProcessing) {
+        await completeProcessing({ reportRunId: reportRun._id, token, status: "ineligible", classification: "ineligible", now, session, ReportRunModel: Models.ReportRun });
+      }
       return { classification: "ineligible", issue: null };
     }
   }
@@ -855,7 +882,9 @@ export const processNegativeSignalTransaction = async ({
     session,
     SignalModel: Models.Signal,
   });
-  await completeProcessing({ reportRunId: reportRun._id, token, status: "completed", classification, issueId: issue._id, now, session, ReportRunModel: Models.ReportRun });
+  if (completeRunProcessing) {
+    await completeProcessing({ reportRunId: reportRun._id, token, status: "completed", classification, issueId: issue._id, now, session, ReportRunModel: Models.ReportRun });
+  }
   return { classification, issue };
 };
 
@@ -994,18 +1023,15 @@ export const runIssueMatchingTransaction = async ({
         Models.Signal.find({ report_run_id: reportRunId }).sort({ detected_at: 1, _id: 1 }),
         session
       );
-      if (signals.length > 1) {
-        throw createIntegrityError(ISSUE_ERROR_CODE.SIGNAL_CARDINALITY, "A ReportRun contains more than one Signal.", ISSUE_REASON.SIGNAL_CARDINALITY);
-      }
-      if (signals[0]) {
+      for (const signal of signals) {
         // Validate persisted Signal ownership before operational-state handling so
         // a contradictory lineage can never be downgraded to ordinary ineligibility.
-        buildCanonicalSignalIssueScope({ signal: signals[0], reportRun });
+        buildCanonicalSignalIssueScope({ signal, reportRun });
       }
       if (parentState.archived) {
-        if (signals[0]) {
+        for (const signal of signals) {
           await markSignalIneligible({
-            signal: signals[0],
+            signal,
             reason: ISSUE_REASON.PARENT_ARCHIVED,
             session,
             SignalModel: Models.Signal,
@@ -1014,16 +1040,18 @@ export const runIssueMatchingTransaction = async ({
         await completeProcessing({ reportRunId, token, status: "not_applicable", classification: "not_applicable", now, session, ReportRunModel: Models.ReportRun });
         return { classification: "not_applicable", issue: null };
       }
-      if (signals.length === 1) {
+      if (signals.length) {
         if (!parentState.reportOperational || !parentState.operationalAuthority) {
-          await markSignalIneligible({
-            signal: signals[0],
-            reason: !parentState.reportOperational
-              ? ISSUE_REASON.PARENT_NOT_OPERATIONAL
-              : parentState.operationalAuthorityReason,
-            session,
-            SignalModel: Models.Signal,
-          });
+          for (const signal of signals) {
+            await markSignalIneligible({
+              signal,
+              reason: !parentState.reportOperational
+                ? ISSUE_REASON.PARENT_NOT_OPERATIONAL
+                : parentState.operationalAuthorityReason,
+              session,
+              SignalModel: Models.Signal,
+            });
+          }
           await completeProcessing({
             reportRunId,
             token,
@@ -1035,15 +1063,54 @@ export const runIssueMatchingTransaction = async ({
           });
           return { classification: "ineligible", issue: null };
         }
-        return processNegativeSignalTransaction({
-          reportRun,
-          signal: signals[0],
+
+        const outcomes = [];
+        for (const signal of signals) {
+          outcomes.push(
+            await processNegativeSignalTransaction({
+              reportRun,
+              signal,
+              token,
+              parentState,
+              Models,
+              session,
+              now,
+              completeRunProcessing: false,
+            })
+          );
+        }
+        const issues = [
+          ...new Map(
+            outcomes
+              .filter((outcome) => outcome.issue?._id)
+              .map((outcome) => [String(outcome.issue._id), outcome.issue])
+          ).values(),
+        ];
+        const successful = outcomes.filter((outcome) => outcome.issue);
+        const classification =
+          successful.length === 0
+            ? outcomes.some((outcome) => outcome.classification === "ineligible")
+              ? "ineligible"
+              : "not_applicable"
+            : successful.length === 1
+              ? successful[0].classification
+              : "matched";
+        await completeProcessing({
+          reportRunId,
           token,
-          parentState,
-          Models,
-          session,
+          status: successful.length ? "completed" : classification,
+          classification,
+          issueId: issues.length === 1 ? issues[0]._id : null,
           now,
+          session,
+          ReportRunModel: Models.ReportRun,
         });
+        return {
+          classification,
+          issue: issues.length === 1 ? issues[0] : null,
+          issues,
+          outcomes,
+        };
       }
       return processCleanObservationTransaction({ reportRun, token, Models, session, now, parentState });
     },

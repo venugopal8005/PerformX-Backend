@@ -81,10 +81,26 @@ export const getIssues = async (req, res) => {
     if (status && !ISSUE_STATUSES.includes(status)) throw invalidFilter("Issue status filter is invalid.");
     if (severity && !ISSUE_SEVERITIES.includes(severity)) throw invalidFilter("Issue severity filter is invalid.");
     const limit = parseHistoryLimit(req.query.limit);
+    const reportIssueIds = reportId
+      ? await Signal.distinct("issue_id", {
+          agency_id: agencyId,
+          report_id: reportId,
+          issue_id: { $type: "objectId" },
+        })
+      : null;
     const query = withCursorScope({
       agency_id: agencyId,
       ...(clientId ? { client_id: clientId } : {}),
-      ...(reportId ? { report_ids: reportId } : {}),
+      ...(reportId
+        ? {
+            $or: [
+              { _id: { $in: reportIssueIds } },
+              // Compatibility only: pre-Phase 3 Issues may not have linked
+              // Signals yet, so retain their persisted legacy lookup path.
+              { report_ids: reportId },
+            ],
+          }
+        : {}),
       ...(metaAdAccountId ? { meta_ad_account_id: metaAdAccountId } : {}),
       ...(status ? { status } : {}),
       ...(severity ? { current_severity: severity } : {}),

@@ -29,6 +29,7 @@ import {
   runReport,
 } from "../src/services/reportRunner.service.js";
 import { markExecutionIntegrityReady } from "../src/services/executionIntegrityIndexes.service.js";
+import { saveSignalsFromNarrative } from "../src/services/signalGenerator.service.js";
 import {
   getIssue,
   getIssues,
@@ -317,6 +318,70 @@ test("first and repeated occurrences create one Issue with ordered write-once Si
   assert.equal(issue.trend, "escalating");
   assert.deepEqual(signals.map((item) => item.issue_occurrence_number), [1, 2]);
   assert.equal(signals.every((item) => String(item.issue_id) === String(issue._id)), true);
+});
+
+test("one ReportRun creates and independently matches multiple deterministic metric Signals", async () => {
+  const domain = await createDomain();
+  const reportRun = await createRun(domain, {
+    start: "2026-07-10",
+    signal: false,
+    narrative: {
+      status: "ok",
+      severity: { level: "high" },
+      executiveSummary: "CTR, CPA, and ROAS independently need attention.",
+      likelyCause: { id: "creative_fatigue", archetype: "Creative fatigue" },
+      campaign: { id: "campaign-1", name: "Campaign One" },
+      rankedAnomalies: [
+        { metric: "ctr", label: "CTR", delta: -30, direction: "bad", usable: true },
+        { metric: "cpa", label: "CPA", delta: 45, direction: "bad", usable: true },
+        { metric: "roas", label: "ROAS", delta: -25, direction: "bad", usable: true },
+      ],
+      dataQuality: { level: "strong" },
+      trustGate: { blocked: false },
+    },
+  });
+  const input = {
+    report: domain.report,
+    reportRun,
+    reportRunId: reportRun._id,
+    narrative: reportRun.narrative,
+    comparison: reportRun.comparison,
+  };
+  const [workerOne, workerTwo] = await Promise.all([
+    saveSignalsFromNarrative(input),
+    saveSignalsFromNarrative(input),
+  ]);
+  assert.equal(workerOne.length, 3);
+  assert.equal(workerTwo.length, 3);
+  assert.equal(await Signal.countDocuments({ report_run_id: reportRun._id }), 3);
+  assert.equal(
+    (
+      await Signal.distinct("observation_key", {
+        report_run_id: reportRun._id,
+      })
+    ).length,
+    3
+  );
+
+  const outcome = await process(reportRun);
+  assert.equal(outcome.issues.length, 3);
+  assert.equal(await Issue.countDocuments({ agency_id: domain.agency._id }), 3);
+  assert.equal(
+    await Signal.countDocuments({
+      report_run_id: reportRun._id,
+      issue_matching_status: "matched",
+    }),
+    3
+  );
+  assert.deepEqual(
+    (await Issue.distinct("metric_family", { agency_id: domain.agency._id })).sort(),
+    ["cpa", "creative_engagement", "roas"]
+  );
+
+  const replay = await process(reportRun);
+  assert.equal(replay.skipped, true);
+  assert.equal(await Issue.countDocuments({ agency_id: domain.agency._id }), 3);
+  assert.equal(await Signal.countDocuments({ report_run_id: reportRun._id }), 3);
 });
 
 test("trusted stable-severity negative evidence starts in monitoring", async () => {
@@ -1078,6 +1143,35 @@ test("Issue list applies agency and operational filters with deterministic pagin
   const invalidResponse = response();
   await getIssues({ user: { agencyId: domain.agency._id }, query: { status: "deleted" } }, invalidResponse);
   assert.equal(invalidResponse.statusCode, 400);
+});
+
+test("report-filtered Issue lists retain legacy report_ids compatibility", async () => {
+  const domain = await createDomain();
+  await process(await createRun(domain, { start: "2026-07-10" }));
+  const issue = await Issue.findOne({ agency_id: domain.agency._id });
+  await Issue.collection.updateOne(
+    { _id: issue._id },
+    { $set: { report_ids: [domain.report._id] } }
+  );
+  await Signal.updateMany(
+    { issue_id: issue._id },
+    { $unset: { issue_id: 1 } }
+  );
+
+  const legacyResponse = response();
+  await getIssues(
+    {
+      user: { agencyId: domain.agency._id },
+      query: { reportId: String(domain.report._id) },
+    },
+    legacyResponse
+  );
+
+  assert.equal(legacyResponse.statusCode, 200);
+  assert.deepEqual(
+    legacyResponse.body.issues.map((candidate) => candidate.id),
+    [String(issue._id)]
+  );
 });
 
 test("Issue detail is non-disclosing across agencies and remains snapshot-first after parent rename", async () => {

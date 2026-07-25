@@ -77,7 +77,9 @@ test("verifies the exact required ReportRun, Signal, and Activity indexes", asyn
           name: required.name,
           key: required.key,
           unique: true,
-          sparse: true,
+          ...(required.partialFilterExpression
+            ? { partialFilterExpression: required.partialFilterExpression }
+            : { sparse: true }),
         }],
       ])
     ),
@@ -105,7 +107,13 @@ test("creates only missing required indexes after duplicate checks", async () =>
     assert.equal(collection.state.createCalls.length, 1);
     assert.deepEqual(collection.state.createCalls[0], {
       key: required.key,
-      options: { name: required.name, unique: true, sparse: true },
+      options: {
+        name: required.name,
+        unique: true,
+        ...(required.partialFilterExpression
+          ? { partialFilterExpression: required.partialFilterExpression }
+          : { sparse: true }),
+      },
     });
     assert.ok(collection.state.indexes.some((index) => isRequiredExecutionIntegrityIndex(index, required)));
     assert.equal(collection.state.duplicateQueries, 1);
@@ -155,6 +163,61 @@ test("does not accept a similar non-unique or non-sparse index as sufficient", a
   assert.equal(configured.collections.ReportRun.state.indexes.length, 2);
   assert.equal(configured.collections.Signal.state.indexes.length, 2);
   assert.equal(configured.collections.Activity.state.createCalls.length, 0);
+});
+
+test("requires the guarded Phase 3 migration when the legacy one-Signal index exists", async () => {
+  const configured = makeModels({
+    indexes: {
+      Signal: [{
+        name: "report_run_id_1",
+        key: { report_run_id: 1 },
+        unique: true,
+        sparse: true,
+      }],
+    },
+  });
+
+  await assert.rejects(
+    verifyExecutionIntegrityIndexes({ models: configured.models }),
+    (error) =>
+      error.code === "EXECUTION_INTEGRITY_SIGNAL_INDEX_MIGRATION_REQUIRED" &&
+      error.details.indexName === "report_run_id_1"
+  );
+  assert.equal(configured.collections.Signal.state.createCalls.length, 0);
+  assert.equal(configured.collections.Signal.state.duplicateQueries, 0);
+});
+
+test("legacy Signal uniqueness blocks readiness even when the new identity index also exists", async () => {
+  const signalIdentity = requiredIndex("Signal");
+  const configured = makeModels({
+    indexes: {
+      ReportRun: [{
+        key: requiredIndex("ReportRun").key,
+        unique: true,
+        sparse: true,
+      }],
+      Signal: [
+        {
+          name: signalIdentity.name,
+          key: signalIdentity.key,
+          unique: true,
+          partialFilterExpression: signalIdentity.partialFilterExpression,
+        },
+        {
+          name: "report_run_id_1",
+          key: { report_run_id: 1 },
+          unique: true,
+          sparse: true,
+        },
+      ],
+    },
+  });
+
+  await assert.rejects(
+    verifyExecutionIntegrityIndexes({ models: configured.models }),
+    (error) => error.code === "EXECUTION_INTEGRITY_SIGNAL_INDEX_MIGRATION_REQUIRED"
+  );
+  assert.equal(configured.collections.Signal.state.createCalls.length, 0);
 });
 
 test("rejects partial indexes that exclude legitimate execution key values", () => {

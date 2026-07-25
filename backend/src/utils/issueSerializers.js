@@ -96,7 +96,11 @@ export const serializeIssueListItem = (issue, parents = {}) => ({
 
 export const serializeIssueDetail = (issue, parents = {}) => ({
   ...serializeIssueListItem(issue, parents),
-  reportIds: (issue.report_ids || []).map(id).filter(Boolean),
+  reportIds: (
+    issue.recent_report_ids?.length
+      ? issue.recent_report_ids
+      : issue.report_ids || []
+  ).slice(-25).map(id).filter(Boolean),
   originReportId: id(issue.origin_report_id),
   latestReportId: id(issue.latest_report_id),
   firstSignalId: id(issue.first_signal_id),
