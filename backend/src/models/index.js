@@ -3,6 +3,7 @@ export { User } from "./User.js";
 export { Client } from "./Client.js";
 export { MetaConnection } from "./MetaConnection.js";
 export { MetaAdAccount } from "./MetaAdAccount.js";
+export { MetaDataDeletionRequest } from "./MetaDataDeletionRequest.js";
 export { Report } from "./Report.js";
 export { ReportRun } from "./ReportRun.js";
 export { Signal } from "./Signal.js";
